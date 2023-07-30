@@ -1,0 +1,28 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "sourceLanguages": [
+                "swift"
+            ],
+            "name": "Debug EchoClient",
+            "program": "${workspaceFolder:EchoClient}/.build/debug/EchoClient",
+            "args": [],
+            "cwd": "${workspaceFolder:EchoClient}",
+            "preLaunchTask": "swift: Build Debug EchoClient"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "sourceLanguages": [
+                "swift"
+            ],
+            "name": "Release EchoClient",
+            "program": "${workspaceFolder:EchoClient}/.build/release/EchoClient",
+            "args": [],
+            "cwd": "${workspaceFolder:EchoClient}",
+            "preLaunchTask": "swift: Build Release EchoClient"
+        }
+    ]
+}

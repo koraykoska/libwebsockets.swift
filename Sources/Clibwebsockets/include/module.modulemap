@@ -1,0 +1,4 @@
+module Clibwebsockets {
+    header "lws_umbrella.h"
+    export *
+}
