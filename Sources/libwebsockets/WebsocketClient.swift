@@ -200,7 +200,9 @@ public class WebsocketClient {
 
         let callerString = "libwebsockets-protocol".utf8CString
         let caller = callerString.toCPointer()
-        lws_close_free_wsi(websocket, LWS_CLOSE_STATUS_GOINGAWAY, caller)
+        if let websocket, !isClosedForever {
+            lws_close_free_wsi(websocket, LWS_CLOSE_STATUS_GOINGAWAY, caller)
+        }
 
         protocolsPointer.deallocate()
 
@@ -258,6 +260,17 @@ public class WebsocketClient {
             // Make sure to ask for the write callback to execute
             lws_callback_on_writable(websocket)
         }
+    }
+
+    public func close(reason: lws_close_status) {
+        let callerString = "libwebsockets-protocol-user".utf8CString
+        let caller = callerString.toCPointer()
+        if let websocket, !isClosedForever {
+            lws_close_free_wsi(websocket, reason, caller)
+        }
+
+        // Make sure the variables below are retained until function end
+        _ = callerString.count
     }
 }
 
