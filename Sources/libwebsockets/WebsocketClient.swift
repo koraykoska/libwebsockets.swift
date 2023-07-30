@@ -16,7 +16,8 @@ public class WebsocketClient {
     // Queue for running websocket event polling
     private let serviceQueue = DispatchQueue(label: "websocket-service")
 
-    private let selfPointer: UnsafeMutablePointer<WebsocketClient> = UnsafeMutablePointer<WebsocketClient>.allocate(capacity: 1)
+    private weak var weakSelf: WebsocketClient?
+    private let selfPointer: UnsafeMutablePointer<WebsocketClient?> = UnsafeMutablePointer<WebsocketClient?>.allocate(capacity: 1)
     private let protocolsPointer: UnsafeMutablePointer<lws_protocols> = UnsafeMutablePointer<lws_protocols>.allocate(capacity: 2)
 
     private var lwsContextCreationInfo: lws_context_creation_info!
@@ -125,7 +126,8 @@ public class WebsocketClient {
         lwsContextCreationInfo.timeout_secs = connectionTimeoutSeconds
 
         // self pointer
-        selfPointer.pointee = self
+        self.weakSelf = self
+        selfPointer.pointee = self.weakSelf
 
         // Protocols
         lwsProtocols = lws_protocols()
@@ -218,7 +220,11 @@ public class WebsocketClient {
             return
         }
 
-        serviceQueue.async {
+        serviceQueue.async { [weak self] in
+            guard let self else {
+                return
+            }
+
             // This lws_service call blocks until the next event1
             // arrives. The 250ms is ignored since the newest version.
             lws_service(self.context, 250)
@@ -272,7 +278,7 @@ private func websocketCallback(
         guard let contextUser = lws_context_user(context) else {
             return nil
         }
-        let websocketClient = contextUser.assumingMemoryBound(to: WebsocketClient.self).pointee
+        let websocketClient = contextUser.assumingMemoryBound(to: Optional<WebsocketClient>.self).pointee
 
         return websocketClient
     }
@@ -307,7 +313,12 @@ private func websocketCallback(
             return 1
         }
 
-        let nextToBeWritten = websocketClient.toBeWritten.withLockedValue({ return $0.removeFirst() })
+        guard let nextToBeWritten = websocketClient.toBeWritten.withLockedValue({ return $0.count > 0 ? $0.removeFirst() : nil }) else {
+            // If we don't return 0 the connection will be closed.
+            // But just because we don't want to write doesn't mean
+            // The connection is dead.
+            return 0
+        }
         let returnValue: Int32
         switch nextToBeWritten.opcode {
         case .binary, .continuation:
