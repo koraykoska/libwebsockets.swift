@@ -205,11 +205,13 @@ public class WebsocketClient {
         print("DEINIT")
         self.close(reason: LWS_CLOSE_STATUS_GOINGAWAY)
 
+        protocolsPointer.deinitialize(count: 2)
         protocolsPointer.deallocate()
 
         // Make sure to free this only after the websocket is destroyed
         // Otherwise we might receive a callback, try to use this pointer
         // And crash...
+        selfPointer.deinitialize(count: 1)
         selfPointer.deallocate()
     }
 
