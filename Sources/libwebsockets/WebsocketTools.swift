@@ -11,3 +11,9 @@ internal extension Bool {
         return self ? 1 : 0
     }
 }
+
+internal extension FixedWidthInteger {
+    func fromCBool() -> Bool {
+        return self != 0
+    }
+}
