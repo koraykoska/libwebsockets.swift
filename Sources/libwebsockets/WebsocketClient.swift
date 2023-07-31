@@ -7,7 +7,7 @@ import Foundation
 public class WebsocketClient {
     public enum Error: Swift.Error {
         case contextCreationFailed
-        case connectionError
+        case connectionError(description: String)
         case websocketWriteFailed
         case websocketClosed
         case websocketNotYetOpen
@@ -96,6 +96,7 @@ public class WebsocketClient {
     public let headers: [String: String]
     public let origin: String
     public let maxFrameSize: Int
+    public let eventLoop: EventLoop
 
     // Needs to be emptied after usage to not create a retain cycle
     fileprivate var onConnect: EventLoopPromise<Void>?
@@ -107,6 +108,14 @@ public class WebsocketClient {
         fin: Bool,
         promise: EventLoopPromise<Void>?
     )>> = .init([])
+
+    // MARK: - Callbacks
+
+    fileprivate let onTextCallback: NIOLoopBoundBox<@Sendable (String) -> ()>
+    fileprivate let onBinaryCallback: NIOLoopBoundBox<@Sendable (Data) -> ()>
+    fileprivate let onPingCallback: NIOLoopBoundBox<@Sendable (Data) -> ()>
+    fileprivate let onPongCallback: NIOLoopBoundBox<@Sendable (Data) -> ()>
+    fileprivate let onCloseCallback: NIOLoopBoundBox<@Sendable (lws_close_status) -> ()>
 
     // MARK: - Initialization
 
@@ -120,6 +129,7 @@ public class WebsocketClient {
         origin: String = "localhost",
         maxFrameSize: Int,
         connectionTimeoutSeconds: UInt32 = 10,
+        eventLoop: EventLoop,
         onConnect: EventLoopPromise<Void>
     ) throws {
         self.scheme = scheme
@@ -130,7 +140,18 @@ public class WebsocketClient {
         self.headers = headers
         self.origin = origin
         self.maxFrameSize = maxFrameSize
+        self.eventLoop = eventLoop
         self.onConnect = onConnect
+
+        // Callbacks
+
+        self.onTextCallback = .init({ _ in }, eventLoop: self.eventLoop)
+        self.onBinaryCallback = .init({ _ in }, eventLoop: self.eventLoop)
+        self.onPingCallback = .init({ _ in }, eventLoop: self.eventLoop)
+        self.onPongCallback = .init({ _ in }, eventLoop: self.eventLoop)
+        self.onCloseCallback = .init({ _ in }, eventLoop: self.eventLoop)
+
+        // lws things below
 
 //        lws_set_log_level(1151, nil)
         lws_set_log_level(0, nil)
@@ -270,6 +291,14 @@ public class WebsocketClient {
         fin: Bool = true,
         promise: EventLoopPromise<Void>? = nil
     ) {
+        if !self.eventLoop.inEventLoop {
+            self.eventLoop.execute {
+                self.send(data, opcode: opcode, fin: fin, promise: promise)
+            }
+
+            return
+        }
+
         if isClosedForever {
             promise?.fail(Error.websocketClosed)
             return
@@ -305,9 +334,68 @@ public class WebsocketClient {
                 lws_context_destroy(context)
             }
 
+            self.eventLoop.execute {
+                self.onCloseCallback.value(reason)
+            }
+
             // Make sure the variables below are retained until function end
             _ = callerString.count
         }
+    }
+
+    public func onText(_ callback: @Sendable @escaping (String) -> ()) {
+        if !self.eventLoop.inEventLoop {
+            self.eventLoop.execute {
+                self.onText(callback)
+            }
+            return
+        }
+
+        self.onTextCallback.value = callback
+    }
+
+    public func onBinary(_ callback: @Sendable @escaping (Data) -> ()) {
+        if !self.eventLoop.inEventLoop {
+            self.eventLoop.execute {
+                self.onBinary(callback)
+            }
+            return
+        }
+
+        self.onBinaryCallback.value = callback
+    }
+
+    public func onPong(_ callback: @Sendable @escaping (Data) -> ()) {
+        if !self.eventLoop.inEventLoop {
+            self.eventLoop.execute {
+                self.onPong(callback)
+            }
+            return
+        }
+
+        self.onPongCallback.value = callback
+    }
+
+    public func onPing(_ callback: @Sendable @escaping (Data) -> ()) {
+        if !self.eventLoop.inEventLoop {
+            self.eventLoop.execute {
+                self.onPing(callback)
+            }
+            return
+        }
+
+        self.onPingCallback.value = callback
+    }
+
+    public func onClose(_ callback: @Sendable @escaping (lws_close_status) -> ()) {
+        if !self.eventLoop.inEventLoop {
+            self.eventLoop.execute {
+                self.onClose(callback)
+            }
+            return
+        }
+
+        self.onCloseCallback.value = callback
     }
 }
 
@@ -477,6 +565,10 @@ private func websocketCallback(
             }
 
             websocketClient.lwsCloseStatus.withLockedValue({ $0 = closeReason })
+
+            websocketClient.eventLoop.execute {
+                websocketClient.onCloseCallback.value(closeReason)
+            }
         }
         break
     case LWS_CALLBACK_CLIENT_CLOSED:
@@ -489,17 +581,18 @@ private func websocketCallback(
             return 1
         }
 
+        var description = ""
         if let inBytes {
             let typedPointer = inBytes.bindMemory(to: UInt8.self, capacity: len)
             let data = Data(Array(UnsafeMutableBufferPointer(start: typedPointer, count: len)))
             if let str = String(data: data, encoding: .utf8) {
-                print("ERROR: \(str)")
+                description = str
             }
         }
 
         websocketClient.connectionError.withLockedValue({ $0 = true })
         // TODO: Better Error messages
-        websocketClient.onConnect?.fail(WebsocketClient.Error.connectionError)
+        websocketClient.onConnect?.fail(WebsocketClient.Error.connectionError(description: description))
         websocketClient.onConnect = nil
         break
     case LWS_CALLBACK_CLIENT_RECEIVE_PONG:
