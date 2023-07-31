@@ -318,19 +318,14 @@ public class WebsocketClient {
 
     public func close(reason: lws_close_status) {
         closeLock.withLock {
-            let callerString = "libwebsockets-protocol".utf8CString
-            let caller = callerString.toCPointer()
+//            let callerString = "libwebsockets-protocol".utf8CString
+//            let caller = callerString.toCPointer()
             if let websocket, !isClosedForever {
                 self.lwsCloseStatus.withLockedValue({ $0 = reason })
-
-                let context = self.context
-                self.eventLoop.execute {
-                    lws_close_free_wsi(websocket, reason, caller)
-                    lws_context_destroy(context)
-
-                    // Make sure the variables below are retained until function end
-                    _ = callerString.count
-                }
+//                lws_close_free_wsi(websocket, reason, caller)
+                var closeReasonText = ""
+                lws_close_reason(websocket, reason, &closeReasonText, 0)
+                lws_context_destroy(context)
             }
 
             // This is necessary because close is called on deinit and
@@ -340,6 +335,9 @@ public class WebsocketClient {
             self.eventLoop.execute {
                 onCloseCallback?.value(reason)
             }
+
+            // Make sure the variables below are retained until function end
+//            _ = callerString.count
         }
     }
 
