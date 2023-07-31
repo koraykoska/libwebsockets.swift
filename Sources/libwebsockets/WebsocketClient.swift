@@ -37,14 +37,17 @@ public class WebsocketClient {
     private var websocket: OpaquePointer!
 
     /// Whether the websocket was ever connected to the server. True once it connected, even if eventually disconnected.
-    fileprivate var wasConnected: NIOLockedValueBox<Bool> = .init(false)
+    fileprivate let wasConnected: NIOLockedValueBox<Bool> = .init(false)
 
     /// True if the connection errored. Will never connect again. lwsClose Status might not be set.
-    fileprivate var connectionError: NIOLockedValueBox<Bool> = .init(false)
+    fileprivate let connectionError: NIOLockedValueBox<Bool> = .init(false)
 
     /// nil until a close event is received. Do not rely soely on it as connection errors lead to a never initialized close status.
     /// Instead, check `wasConnected` first to make sure a connection has been established before checking this value.
-    fileprivate var lwsCloseStatus: NIOLockedValueBox<lws_close_status?> = .init(nil)
+    fileprivate let lwsCloseStatus: NIOLockedValueBox<lws_close_status?> = .init(nil)
+
+    /// Internally managed buffer of frames. Emitted once the full message is there.
+    fileprivate let frameSequence: NIOLockedValueBox<WebsocketFrameSequence?> = .init(nil)
 
     // State variables
 
@@ -193,6 +196,12 @@ public class WebsocketClient {
         let lwsCCInfoOrigin = origin.utf8CString
         lwsCCInfo.origin = lwsCCInfoOrigin.toCPointer()
         lwsCCInfo.protocol = lwsProtocols.name
+        switch scheme {
+        case .wss:
+            ws_set_ssl_connection(&lwsCCInfo)
+        case .ws:
+            break
+        }
 
         // Connect
         websocket = lws_client_connect_via_info(&lwsCCInfo)
@@ -327,18 +336,62 @@ private func websocketCallback(
         websocketClient.onConnect = nil
         break
     case LWS_CALLBACK_CLIENT_RECEIVE:
-        print("Read \(len) bytes")
-        guard let inBytes else {
+        guard let websocketClient else {
             return 1
+        }
+        guard let inBytes else {
+            // We don't really care. No bytes received means we don't do anything.
+            break
         }
         let typedPointer = inBytes.bindMemory(to: UInt8.self, capacity: len)
         let data = Data(Array(UnsafeMutableBufferPointer(start: typedPointer, count: len)))
-        if let str = String(data: data, encoding: .utf8) {
-            print(str)
-        } else {
-            print("non-string")
-            print(data)
-        }
+
+        let isFirst = lws_is_first_fragment(wsi).fromCBool()
+        let isFinal = lws_is_final_fragment(wsi).fromCBool()
+        let isBinary = lws_frame_is_binary(wsi).fromCBool()
+
+        websocketClient.frameSequence.withLockedValue({ currentFrameSequence in
+            if isFirst && isFinal {
+                // We can skip everything below. It's a simple message
+                if isBinary {
+                    // TODO: Binary callback
+                    print("Binary Callback Simple")
+                    print(data.count)
+                } else {
+                    // TODO: Text callback
+                    print("Text Callback Simple")
+                    print(String(data: data, encoding: .utf8) ?? "")
+                }
+
+                currentFrameSequence = nil
+                return
+            }
+
+            var frameSequence = currentFrameSequence ?? .init(type: isBinary ? .binary : .text)
+            // Append the frame and update the sequence
+            frameSequence.append(data)
+            currentFrameSequence = frameSequence
+
+            if isFinal {
+                switch frameSequence.type {
+                case .binary:
+                    // TODO: Binary callback
+                    print("Binary Callback")
+                    print(data.count)
+                    break
+                case .text:
+                    // TODO: Text callback
+                    print("Text Callback")
+                    print(frameSequence.textBuffer)
+                    break
+                default:
+                    // Should never happen. If it does, do nothing.
+                    break
+                }
+
+                currentFrameSequence = nil
+            }
+        })
         break
     case LWS_CALLBACK_CLIENT_WRITEABLE:
         guard let websocketClient else {
@@ -349,7 +402,7 @@ private func websocketCallback(
             // If we don't return 0 the connection will be closed.
             // But just because we don't want to write doesn't mean
             // The connection is dead.
-            return 0
+            break
         }
         let returnValue: Int32
         switch nextToBeWritten.opcode {
@@ -399,18 +452,16 @@ private func websocketCallback(
         guard let websocketClient else {
             return 1
         }
-        print("LWS_CALLBACK_WS_PEER_INITIATED_CLOSE")
+
         // This means the other side initiated a close.
         websocketClient.closeLock.withLock {
-            var closeReason = LWS_CLOSE_STATUS_ABNORMAL_CLOSE
+            var closeReason = LWS_CLOSE_STATUS_NO_STATUS
             if let inBytes, len >= 2 {
-                print("inBytes")
                 let bytesRaw = inBytes.bindMemory(to: UInt16.self, capacity: 1)
                 let status = UInt16(bigEndian: bytesRaw.pointee)
                 closeReason = lws_close_status(UInt32(status))
             }
 
-            print("Close reason: \(closeReason)")
             websocketClient.lwsCloseStatus.withLockedValue({ $0 = closeReason })
         }
         break
@@ -424,7 +475,6 @@ private func websocketCallback(
             return 1
         }
 
-        print("Connection error")
         websocketClient.connectionError.withLockedValue({ $0 = true })
         // TODO: Better Error messages
         websocketClient.onConnect?.fail(WebsocketClient.Error.connectionError)
@@ -444,7 +494,7 @@ private func websocketCallback(
         guard let inBytes else {
             return 1
         }
-        var p = inBytes.assumingMemoryBound(to: UnsafeMutablePointer<UInt8>?.self)
+        let p = inBytes.assumingMemoryBound(to: UnsafeMutablePointer<UInt8>?.self)
         let end = p.pointee?.advanced(by: len)
 
         for header in websocketClient.headers {
@@ -460,7 +510,7 @@ private func websocketCallback(
             ) == 0 else {
                 return 1
             }
-            p = p.advanced(by: 1)
+
             // Make sure key and value are retained until this point
             _ = keyString.count
             _ = valueString.count
@@ -475,4 +525,32 @@ private func websocketCallback(
     }
 
     return 0
+}
+
+private struct WebsocketFrameSequence: Sendable {
+    var binaryBuffer: Data
+    var textBuffer: String
+    let type: WebsocketOpcode
+    let lock: NIOLock
+
+    init(type: WebsocketOpcode) {
+        self.binaryBuffer = Data()
+        self.textBuffer = .init()
+        self.type = type
+        self.lock = .init()
+    }
+
+    mutating func append(_ frame: Data) {
+        self.lock.withLockVoid {
+            switch type {
+            case .binary:
+                self.binaryBuffer.append(frame)
+            case .text:
+                if let string = String(data: frame, encoding: .utf8) {
+                    self.textBuffer += string
+                }
+            default: break
+            }
+        }
+    }
 }
