@@ -334,6 +334,9 @@ public class WebsocketClient {
                 lws_context_destroy(context)
             }
 
+            // This is necessary because close is called on deinit and
+            // the async execution means onCloseCallback is gone by
+            // the time we access it
             let onCloseCallback = self.onCloseCallback
             self.eventLoop.execute {
                 onCloseCallback.value(reason)
@@ -455,10 +458,18 @@ private func websocketCallback(
                     // TODO: Binary callback
                     print("Binary Callback Simple")
                     print(data.count)
+                    websocketClient.eventLoop.execute {
+                        websocketClient.onBinaryCallback.value(data)
+                    }
                 } else {
                     // TODO: Text callback
                     print("Text Callback Simple")
                     print(String(data: data, encoding: .utf8) ?? "")
+                    if let stringMessage = String(data: data, encoding: .utf8) {
+                        websocketClient.eventLoop.execute {
+                            websocketClient.onTextCallback.value(stringMessage)
+                        }
+                    }
                 }
 
                 currentFrameSequence = nil
@@ -475,12 +486,18 @@ private func websocketCallback(
                 case .binary:
                     // TODO: Binary callback
                     print("Binary Callback")
-                    print(data.count)
+                    print(frameSequence.binaryBuffer.count)
+                    websocketClient.eventLoop.execute {
+                        websocketClient.onBinaryCallback.value(frameSequence.binaryBuffer)
+                    }
                     break
                 case .text:
                     // TODO: Text callback
                     print("Text Callback")
                     print(frameSequence.textBuffer)
+                    websocketClient.eventLoop.execute {
+                        websocketClient.onTextCallback.value(frameSequence.textBuffer)
+                    }
                     break
                 default:
                     // Should never happen. If it does, do nothing.
@@ -599,6 +616,19 @@ private func websocketCallback(
         break
     case LWS_CALLBACK_CLIENT_RECEIVE_PONG:
         // TODO: onPong
+        guard let websocketClient else {
+            return 1
+        }
+
+        var data = Data()
+        if let inBytes {
+            let typedPointer = inBytes.bindMemory(to: UInt8.self, capacity: len)
+            data = Data(Array(UnsafeMutableBufferPointer(start: typedPointer, count: len)))
+        }
+
+        websocketClient.eventLoop.execute {
+            websocketClient.onPongCallback.value(data)
+        }
         break
     case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
         guard let websocketClient else {
