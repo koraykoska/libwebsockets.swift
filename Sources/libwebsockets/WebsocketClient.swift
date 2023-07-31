@@ -16,8 +16,15 @@ public class WebsocketClient {
     // Queue for running websocket event polling
     private let serviceQueue = DispatchQueue(label: "websocket-service")
 
-    private weak var weakSelf: WebsocketClient?
-    private let selfPointer: UnsafeMutablePointer<WebsocketClient?> = UnsafeMutablePointer<WebsocketClient?>.allocate(capacity: 1)
+    // See: https://stackoverflow.com/questions/61236195/create-a-weak-unsafemutablerawpointer?rq=3
+    fileprivate class WeakSelf {
+        fileprivate weak var weakSelf: WebsocketClient?
+
+        fileprivate init(weakSelf: WebsocketClient) {
+            self.weakSelf = weakSelf
+        }
+    }
+    private let selfPointer: UnsafeMutablePointer<WeakSelf> = UnsafeMutablePointer<WeakSelf>.allocate(capacity: 1)
     private let protocolsPointer: UnsafeMutablePointer<lws_protocols> = UnsafeMutablePointer<lws_protocols>.allocate(capacity: 2)
 
     private var lwsContextCreationInfo: lws_context_creation_info!
@@ -126,8 +133,7 @@ public class WebsocketClient {
         lwsContextCreationInfo.timeout_secs = connectionTimeoutSeconds
 
         // self pointer
-        self.weakSelf = self
-        selfPointer.pointee = self.weakSelf
+        selfPointer.pointee = .init(weakSelf: self)
 
         // Protocols
         lwsProtocols = lws_protocols()
@@ -291,9 +297,9 @@ private func websocketCallback(
         guard let contextUser = lws_context_user(context) else {
             return nil
         }
-        let websocketClient = contextUser.assumingMemoryBound(to: Optional<WebsocketClient>.self).pointee
+        let websocketClient = contextUser.assumingMemoryBound(to: WebsocketClient.WeakSelf.self).pointee
 
-        return websocketClient
+        return websocketClient.weakSelf
     }
     let websocketClient = getWebsocketClient()
 
