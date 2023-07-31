@@ -132,8 +132,8 @@ public class WebsocketClient {
         self.maxFrameSize = maxFrameSize
         self.onConnect = onConnect
 
-        lws_set_log_level(1151, nil)
-//        lws_set_log_level(0, nil)
+//        lws_set_log_level(1151, nil)
+        lws_set_log_level(0, nil)
 
         // Context Creation Info
         lwsContextCreationInfo = lws_context_creation_info()
