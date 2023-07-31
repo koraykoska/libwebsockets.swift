@@ -139,6 +139,12 @@ public class WebsocketClient {
         lwsContextCreationInfo = lws_context_creation_info()
         lws_context_creation_info_zero(&lwsContextCreationInfo)
         lwsContextCreationInfo.port = CONTEXT_PORT_NO_LISTEN
+        switch scheme {
+        case .wss:
+            lwsContextCreationInfo.options = UInt64(LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)
+        case .ws:
+            break
+        }
         lwsContextCreationInfo.timeout_secs = connectionTimeoutSeconds
 
         // self pointer
