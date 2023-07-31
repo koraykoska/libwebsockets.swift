@@ -318,14 +318,14 @@ public class WebsocketClient {
                 self.lwsCloseStatus.withLockedValue({ $0 = reason })
                 var closeReasonText = ""
                 lws_close_reason(websocket, reason, &closeReasonText, 0)
-            }
 
-            // This is necessary because close is called on deinit and
-            // the async execution means onCloseCallback is gone by
-            // the time we access it
-            let onCloseCallback = self.onCloseCallback
-            self.eventLoop.execute {
-                onCloseCallback?.value(reason)
+                // This is necessary because close is called on deinit and
+                // the async execution means onCloseCallback is gone by
+                // the time we access it
+                let onCloseCallback = self.onCloseCallback
+                self.eventLoop.execute {
+                    onCloseCallback?.value(reason)
+                }
             }
         }
     }
