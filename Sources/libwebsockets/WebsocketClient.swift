@@ -143,6 +143,14 @@ public class WebsocketClient {
         self.eventLoop = eventLoop
         self.onConnect = onConnect
 
+        // Timeout to prevent leaking promise
+        eventLoop.scheduleTask(in: .seconds(2 * Int64(connectionTimeoutSeconds)), {
+            if let onConnect = self.onConnect {
+                onConnect.fail(Error.connectionError(description: "timeout"))
+                self.onConnect = nil
+            }
+        })
+
         // lws things below
 
 //        lws_set_log_level(1151, nil)
@@ -442,8 +450,10 @@ private func websocketCallback(
         }
 
         websocketClient.wasConnected.withLockedValue({ $0 = true })
-        websocketClient.onConnect?.succeed()
-        websocketClient.onConnect = nil
+        websocketClient.eventLoop.execute {
+            websocketClient.onConnect?.succeed()
+            websocketClient.onConnect = nil
+        }
         break
     case LWS_CALLBACK_CLIENT_RECEIVE:
         guard let websocketClient else {
@@ -613,8 +623,10 @@ private func websocketCallback(
 
         websocketClient.connectionError.withLockedValue({ $0 = true })
         // TODO: Better Error messages
-        websocketClient.onConnect?.fail(WebsocketClient.Error.connectionError(description: description))
-        websocketClient.onConnect = nil
+        websocketClient.eventLoop.execute {
+            websocketClient.onConnect?.fail(WebsocketClient.Error.connectionError(description: description))
+            websocketClient.onConnect = nil
+        }
         break
     case LWS_CALLBACK_CLIENT_RECEIVE_PONG:
         // TODO: onPong
