@@ -322,8 +322,15 @@ public class WebsocketClient {
             let caller = callerString.toCPointer()
             if let websocket, !isClosedForever {
                 self.lwsCloseStatus.withLockedValue({ $0 = reason })
-                lws_close_free_wsi(websocket, reason, caller)
-                lws_context_destroy(context)
+
+                let context = self.context
+                self.eventLoop.execute {
+                    lws_close_free_wsi(websocket, reason, caller)
+                    lws_context_destroy(context)
+
+                    // Make sure the variables below are retained until function end
+                    _ = callerString.count
+                }
             }
 
             // This is necessary because close is called on deinit and
@@ -333,9 +340,6 @@ public class WebsocketClient {
             self.eventLoop.execute {
                 onCloseCallback?.value(reason)
             }
-
-            // Make sure the variables below are retained until function end
-            _ = callerString.count
         }
     }
 
