@@ -192,7 +192,8 @@ public class WebsocketClient {
         let lwsCCInfoPath = path.utf8CString
         lwsCCInfo.path = lwsCCInfoPath.toCPointer()
         // TODO: Use query and all other params?
-        lwsCCInfo.host = lws_canonical_hostname(context)
+//        lwsCCInfo.host = lws_canonical_hostname(context)
+        lwsCCInfo.host = lwsCCInfoHost.toCPointer()
         let lwsCCInfoOrigin = origin.utf8CString
         lwsCCInfo.origin = lwsCCInfoOrigin.toCPointer()
         lwsCCInfo.protocol = lwsProtocols.name
