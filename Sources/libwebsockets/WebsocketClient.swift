@@ -475,6 +475,14 @@ private func websocketCallback(
             return 1
         }
 
+        if let inBytes {
+            let typedPointer = inBytes.bindMemory(to: UInt8.self, capacity: len)
+            let data = Data(Array(UnsafeMutableBufferPointer(start: typedPointer, count: len)))
+            if let str = String(data: data, encoding: .utf8) {
+                print("ERROR: \(str)")
+            }
+        }
+
         websocketClient.connectionError.withLockedValue({ $0 = true })
         // TODO: Better Error messages
         websocketClient.onConnect?.fail(WebsocketClient.Error.connectionError)
