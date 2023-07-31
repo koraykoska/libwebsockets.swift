@@ -334,8 +334,9 @@ public class WebsocketClient {
                 lws_context_destroy(context)
             }
 
+            let onCloseCallback = self.onCloseCallback
             self.eventLoop.execute {
-                self.onCloseCallback.value(reason)
+                onCloseCallback.value(reason)
             }
 
             // Make sure the variables below are retained until function end
@@ -566,8 +567,9 @@ private func websocketCallback(
 
             websocketClient.lwsCloseStatus.withLockedValue({ $0 = closeReason })
 
+            let onCloseCallback = websocketClient.onCloseCallback
             websocketClient.eventLoop.execute {
-                websocketClient.onCloseCallback.value(closeReason)
+                onCloseCallback.value(closeReason)
             }
         }
         break
