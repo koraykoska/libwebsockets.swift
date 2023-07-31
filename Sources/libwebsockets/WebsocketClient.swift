@@ -111,10 +111,10 @@ public class WebsocketClient {
 
     // MARK: - Callbacks
 
-    fileprivate var onTextCallback: NIOLoopBoundBox<@Sendable (String) -> ()>?
-    fileprivate var onBinaryCallback: NIOLoopBoundBox<@Sendable (Data) -> ()>?
-    fileprivate var onPingCallback: NIOLoopBoundBox<@Sendable (Data) -> ()>?
-    fileprivate var onPongCallback: NIOLoopBoundBox<@Sendable (Data) -> ()>?
+    fileprivate var onTextCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, String) -> ()>?
+    fileprivate var onBinaryCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
+    fileprivate var onPingCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
+    fileprivate var onPongCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
     fileprivate var onCloseCallback: NIOLoopBoundBox<@Sendable (lws_close_status) -> ()>?
 
     // MARK: - Initialization
@@ -330,7 +330,7 @@ public class WebsocketClient {
         }
     }
 
-    public func onText(_ callback: @Sendable @escaping (String) -> ()) {
+    public func onText(_ callback: @Sendable @escaping (WebsocketClient, String) -> ()) {
         if !self.eventLoop.inEventLoop {
             self.eventLoop.execute {
                 self.onText(callback)
@@ -345,7 +345,7 @@ public class WebsocketClient {
         }
     }
 
-    public func onBinary(_ callback: @Sendable @escaping (Data) -> ()) {
+    public func onBinary(_ callback: @Sendable @escaping (WebsocketClient, Data) -> ()) {
         if !self.eventLoop.inEventLoop {
             self.eventLoop.execute {
                 self.onBinary(callback)
@@ -360,7 +360,7 @@ public class WebsocketClient {
         }
     }
 
-    public func onPong(_ callback: @Sendable @escaping (Data) -> ()) {
+    public func onPong(_ callback: @Sendable @escaping (WebsocketClient, Data) -> ()) {
         if !self.eventLoop.inEventLoop {
             self.eventLoop.execute {
                 self.onPong(callback)
@@ -375,7 +375,7 @@ public class WebsocketClient {
         }
     }
 
-    public func onPing(_ callback: @Sendable @escaping (Data) -> ()) {
+    public func onPing(_ callback: @Sendable @escaping (WebsocketClient, Data) -> ()) {
         if !self.eventLoop.inEventLoop {
             self.eventLoop.execute {
                 self.onPing(callback)
@@ -460,13 +460,13 @@ private func websocketCallback(
                 if isBinary {
                     // TODO: Binary callback
                     websocketClient.eventLoop.execute {
-                        websocketClient.onBinaryCallback?.value(data)
+                        websocketClient.onBinaryCallback?.value(websocketClient, data)
                     }
                 } else {
                     // TODO: Text callback
                     if let stringMessage = String(data: data, encoding: .utf8) {
                         websocketClient.eventLoop.execute {
-                            websocketClient.onTextCallback?.value(stringMessage)
+                            websocketClient.onTextCallback?.value(websocketClient, stringMessage)
                         }
                     }
                 }
@@ -485,13 +485,13 @@ private func websocketCallback(
                 case .binary:
                     // TODO: Binary callback
                     websocketClient.eventLoop.execute {
-                        websocketClient.onBinaryCallback?.value(frameSequence.binaryBuffer)
+                        websocketClient.onBinaryCallback?.value(websocketClient, frameSequence.binaryBuffer)
                     }
                     break
                 case .text:
                     // TODO: Text callback
                     websocketClient.eventLoop.execute {
-                        websocketClient.onTextCallback?.value(frameSequence.textBuffer)
+                        websocketClient.onTextCallback?.value(websocketClient, frameSequence.textBuffer)
                     }
                     break
                 default:
@@ -623,7 +623,7 @@ private func websocketCallback(
         }
 
         websocketClient.eventLoop.execute {
-            websocketClient.onPongCallback?.value(data)
+            websocketClient.onPongCallback?.value(websocketClient, data)
         }
         break
     case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
