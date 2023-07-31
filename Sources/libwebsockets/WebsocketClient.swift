@@ -111,11 +111,11 @@ public class WebsocketClient {
 
     // MARK: - Callbacks
 
-    fileprivate let onTextCallback: NIOLoopBoundBox<@Sendable (String) -> ()>
-    fileprivate let onBinaryCallback: NIOLoopBoundBox<@Sendable (Data) -> ()>
-    fileprivate let onPingCallback: NIOLoopBoundBox<@Sendable (Data) -> ()>
-    fileprivate let onPongCallback: NIOLoopBoundBox<@Sendable (Data) -> ()>
-    fileprivate let onCloseCallback: NIOLoopBoundBox<@Sendable (lws_close_status) -> ()>
+    fileprivate var onTextCallback: NIOLoopBoundBox<@Sendable (String) -> ()>?
+    fileprivate var onBinaryCallback: NIOLoopBoundBox<@Sendable (Data) -> ()>?
+    fileprivate var onPingCallback: NIOLoopBoundBox<@Sendable (Data) -> ()>?
+    fileprivate var onPongCallback: NIOLoopBoundBox<@Sendable (Data) -> ()>?
+    fileprivate var onCloseCallback: NIOLoopBoundBox<@Sendable (lws_close_status) -> ()>?
 
     // MARK: - Initialization
 
@@ -142,14 +142,6 @@ public class WebsocketClient {
         self.maxFrameSize = maxFrameSize
         self.eventLoop = eventLoop
         self.onConnect = onConnect
-
-        // Callbacks
-
-        self.onTextCallback = .init({ _ in }, eventLoop: self.eventLoop)
-        self.onBinaryCallback = .init({ _ in }, eventLoop: self.eventLoop)
-        self.onPingCallback = .init({ _ in }, eventLoop: self.eventLoop)
-        self.onPongCallback = .init({ _ in }, eventLoop: self.eventLoop)
-        self.onCloseCallback = .init({ _ in }, eventLoop: self.eventLoop)
 
         // lws things below
 
@@ -339,7 +331,7 @@ public class WebsocketClient {
             // the time we access it
             let onCloseCallback = self.onCloseCallback
             self.eventLoop.execute {
-                onCloseCallback.value(reason)
+                onCloseCallback?.value(reason)
             }
 
             // Make sure the variables below are retained until function end
@@ -355,7 +347,11 @@ public class WebsocketClient {
             return
         }
 
-        self.onTextCallback.value = callback
+        if let onTextCallback {
+            onTextCallback.value = callback
+        } else {
+            self.onTextCallback = .init(callback, eventLoop: self.eventLoop)
+        }
     }
 
     public func onBinary(_ callback: @Sendable @escaping (Data) -> ()) {
@@ -366,7 +362,11 @@ public class WebsocketClient {
             return
         }
 
-        self.onBinaryCallback.value = callback
+        if let onBinaryCallback {
+            onBinaryCallback.value = callback
+        } else {
+            self.onBinaryCallback = .init(callback, eventLoop: self.eventLoop)
+        }
     }
 
     public func onPong(_ callback: @Sendable @escaping (Data) -> ()) {
@@ -377,7 +377,11 @@ public class WebsocketClient {
             return
         }
 
-        self.onPongCallback.value = callback
+        if let onPongCallback {
+            onPongCallback.value = callback
+        } else {
+            self.onPongCallback = .init(callback, eventLoop: self.eventLoop)
+        }
     }
 
     public func onPing(_ callback: @Sendable @escaping (Data) -> ()) {
@@ -388,7 +392,11 @@ public class WebsocketClient {
             return
         }
 
-        self.onPingCallback.value = callback
+        if let onPingCallback {
+            onPingCallback.value = callback
+        } else {
+            self.onPingCallback = .init(callback, eventLoop: self.eventLoop)
+        }
     }
 
     public func onClose(_ callback: @Sendable @escaping (lws_close_status) -> ()) {
@@ -399,7 +407,11 @@ public class WebsocketClient {
             return
         }
 
-        self.onCloseCallback.value = callback
+        if let onCloseCallback {
+            onCloseCallback.value = callback
+        } else {
+            self.onCloseCallback = .init(callback, eventLoop: self.eventLoop)
+        }
     }
 }
 
@@ -457,13 +469,13 @@ private func websocketCallback(
                 if isBinary {
                     // TODO: Binary callback
                     websocketClient.eventLoop.execute {
-                        websocketClient.onBinaryCallback.value(data)
+                        websocketClient.onBinaryCallback?.value(data)
                     }
                 } else {
                     // TODO: Text callback
                     if let stringMessage = String(data: data, encoding: .utf8) {
                         websocketClient.eventLoop.execute {
-                            websocketClient.onTextCallback.value(stringMessage)
+                            websocketClient.onTextCallback?.value(stringMessage)
                         }
                     }
                 }
@@ -482,13 +494,13 @@ private func websocketCallback(
                 case .binary:
                     // TODO: Binary callback
                     websocketClient.eventLoop.execute {
-                        websocketClient.onBinaryCallback.value(frameSequence.binaryBuffer)
+                        websocketClient.onBinaryCallback?.value(frameSequence.binaryBuffer)
                     }
                     break
                 case .text:
                     // TODO: Text callback
                     websocketClient.eventLoop.execute {
-                        websocketClient.onTextCallback.value(frameSequence.textBuffer)
+                        websocketClient.onTextCallback?.value(frameSequence.textBuffer)
                     }
                     break
                 default:
@@ -578,7 +590,7 @@ private func websocketCallback(
 
             let onCloseCallback = websocketClient.onCloseCallback
             websocketClient.eventLoop.execute {
-                onCloseCallback.value(closeReason)
+                onCloseCallback?.value(closeReason)
             }
         }
         break
@@ -619,7 +631,7 @@ private func websocketCallback(
         }
 
         websocketClient.eventLoop.execute {
-            websocketClient.onPongCallback.value(data)
+            websocketClient.onPongCallback?.value(data)
         }
         break
     case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
