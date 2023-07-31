@@ -82,7 +82,7 @@ public class WebsocketClient {
     }
 
     /// Lock for closing the connection from the client side or setting the reason from the server side
-    private let closeLock = NIOLock()
+    fileprivate let closeLock = NIOLock()
 
     // Init properties
     public let scheme: WebsocketScheme
@@ -400,19 +400,24 @@ private func websocketCallback(
             return 1
         }
         print("LWS_CALLBACK_WS_PEER_INITIATED_CLOSE")
+        // This means the other side initiated a close.
+        websocketClient.closeLock.withLock {
+            var closeReason = LWS_CLOSE_STATUS_ABNORMAL_CLOSE
+            if let inBytes, len >= 2 {
+                print("inBytes")
+                let bytesRaw = inBytes.bindMemory(to: UInt16.self, capacity: 1)
+                let status = UInt16(bigEndian: bytesRaw.pointee)
+                closeReason = lws_close_status(UInt32(status))
+            }
 
-        var closeReason = LWS_CLOSE_STATUS_ABNORMAL_CLOSE
-        if let inBytes, len >= 2 {
-            print("inBytes")
-            let bytesRaw = inBytes.bindMemory(to: UInt8.self, capacity: 2)
-            let bytes = Array(UnsafeMutableBufferPointer(start: bytesRaw, count: 2))
+            print("Close reason: \(closeReason)")
+            websocketClient.lwsCloseStatus.withLockedValue({ $0 = closeReason })
         }
         break
     case LWS_CALLBACK_CLIENT_CLOSED:
-        // TODO: Find the close reason?
-        print("Closed")
-        print(inBytes)
-        print(len)
+        // This is emitted when the client was closed.
+        // We know the reason already in LWS_CALLBACK_WS_PEER_INITIATED_CLOSE
+        // Or the custom close() function if initiated from the client.
         break
     case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
         guard let websocketClient else {
