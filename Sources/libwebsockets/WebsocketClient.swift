@@ -76,8 +76,11 @@ public class WebsocketClient {
             return false
         }
 
-        return false
+        return true
     }
+
+    /// Lock for closing the connection from the client side or setting the reason from the server side
+    private let closeLock = NIOLock()
 
     // Init properties
     public let scheme: WebsocketScheme
@@ -264,15 +267,18 @@ public class WebsocketClient {
     }
 
     public func close(reason: lws_close_status) {
-        let callerString = "libwebsockets-protocol".utf8CString
-        let caller = callerString.toCPointer()
-        if let websocket, !isClosedForever {
-            lws_close_free_wsi(websocket, reason, caller)
-            lws_context_destroy(context)
-        }
+        closeLock.withLock {
+            let callerString = "libwebsockets-protocol".utf8CString
+            let caller = callerString.toCPointer()
+            if let websocket, !isClosedForever {
+                self.lwsCloseStatus.withLockedValue({ $0 = reason })
+                lws_close_free_wsi(websocket, reason, caller)
+                lws_context_destroy(context)
+            }
 
-        // Make sure the variables below are retained until function end
-        _ = callerString.count
+            // Make sure the variables below are retained until function end
+            _ = callerString.count
+        }
     }
 }
 
