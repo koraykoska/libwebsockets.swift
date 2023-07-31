@@ -260,7 +260,7 @@ public class WebsocketClient {
         }
 
         serviceQueue.async { [weak self] in
-            guard let self else {
+            guard let self, !isClosedForever else {
                 return
             }
 
@@ -269,10 +269,6 @@ public class WebsocketClient {
             lws_service(self.context, 250)
             self.scheduleServiceCall()
         }
-    }
-
-    private func handleIncomingMessage() {
-
     }
 
     // MARK: - Public API
