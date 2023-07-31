@@ -456,15 +456,11 @@ private func websocketCallback(
                 // We can skip everything below. It's a simple message
                 if isBinary {
                     // TODO: Binary callback
-                    print("Binary Callback Simple")
-                    print(data.count)
                     websocketClient.eventLoop.execute {
                         websocketClient.onBinaryCallback.value(data)
                     }
                 } else {
                     // TODO: Text callback
-                    print("Text Callback Simple")
-                    print(String(data: data, encoding: .utf8) ?? "")
                     if let stringMessage = String(data: data, encoding: .utf8) {
                         websocketClient.eventLoop.execute {
                             websocketClient.onTextCallback.value(stringMessage)
@@ -485,16 +481,12 @@ private func websocketCallback(
                 switch frameSequence.type {
                 case .binary:
                     // TODO: Binary callback
-                    print("Binary Callback")
-                    print(frameSequence.binaryBuffer.count)
                     websocketClient.eventLoop.execute {
                         websocketClient.onBinaryCallback.value(frameSequence.binaryBuffer)
                     }
                     break
                 case .text:
                     // TODO: Text callback
-                    print("Text Callback")
-                    print(frameSequence.textBuffer)
                     websocketClient.eventLoop.execute {
                         websocketClient.onTextCallback.value(frameSequence.textBuffer)
                     }
