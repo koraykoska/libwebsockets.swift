@@ -413,6 +413,11 @@ private func websocketCallback(
             // The connection is dead.
             break
         }
+        defer {
+            // Sometimes if many sends come at the same time, we only get one callback
+            // Make sure to continue until there is nothing left to write.
+            lws_callback_on_writable(wsi)
+        }
         let returnValue: Int32
         switch nextToBeWritten.opcode {
         case .binary, .continuation:
