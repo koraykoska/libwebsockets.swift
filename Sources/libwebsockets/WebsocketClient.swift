@@ -9,6 +9,8 @@ public class WebsocketClient {
         case contextCreationFailed
         case connectionError
         case websocketWriteFailed
+        case websocketClosed
+        case websocketNotYetOpen
     }
 
     // MARK: - Properties
@@ -250,6 +252,15 @@ public class WebsocketClient {
         fin: Bool = true,
         promise: EventLoopPromise<Void>? = nil
     ) {
+        if isClosedForever {
+            promise?.fail(Error.websocketClosed)
+            return
+        }
+        if isClosed {
+            promise?.fail(Error.websocketNotYetOpen)
+            return
+        }
+
         switch opcode {
         case .binary, .text, .continuation, .ping:
             toBeWritten.withLockedValue({
@@ -384,11 +395,11 @@ private func websocketCallback(
             nextToBeWritten.promise?.fail(WebsocketClient.Error.websocketWriteFailed)
         }
         return returnValue
-    case LWS_CALLBACK_CLOSED:
+    case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
         guard let websocketClient else {
             return 1
         }
-        print("LWS_CALLBACK_CLOSED")
+        print("LWS_CALLBACK_WS_PEER_INITIATED_CLOSE")
 
         var closeReason = LWS_CLOSE_STATUS_ABNORMAL_CLOSE
         if let inBytes, len >= 2 {
