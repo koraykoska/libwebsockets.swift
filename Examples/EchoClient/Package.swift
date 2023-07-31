@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "EchoClient",
     dependencies: [
-        .package(path: "../../"),
+        .package(url: "../../", branch: "main"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.57.0"),
     ],
     targets: [

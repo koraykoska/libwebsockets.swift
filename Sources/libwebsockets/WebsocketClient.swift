@@ -125,6 +125,7 @@ public class WebsocketClient {
         self.onConnect = onConnect
 
 //        lws_set_log_level(1151, nil)
+        lws_set_log_level(0, nil)
 
         // Context Creation Info
         lwsContextCreationInfo = lws_context_creation_info()
@@ -377,6 +378,19 @@ private func websocketCallback(
             nextToBeWritten.promise?.fail(WebsocketClient.Error.websocketWriteFailed)
         }
         return returnValue
+    case LWS_CALLBACK_CLOSED:
+        guard let websocketClient else {
+            return 1
+        }
+        print("LWS_CALLBACK_CLOSED")
+
+        var closeReason = LWS_CLOSE_STATUS_ABNORMAL_CLOSE
+        if let inBytes, len >= 2 {
+            print("inBytes")
+            let bytesRaw = inBytes.bindMemory(to: UInt8.self, capacity: 2)
+            let bytes = Array(UnsafeMutableBufferPointer(start: bytesRaw, count: 2))
+        }
+        break
     case LWS_CALLBACK_CLIENT_CLOSED:
         // TODO: Find the close reason?
         print("Closed")

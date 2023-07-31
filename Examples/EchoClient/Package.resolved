@@ -1,6 +1,15 @@
 {
   "pins" : [
     {
+      "identity" : "libwebsockets.swift",
+      "kind" : "localSourceControl",
+      "location" : "/Users/koray/git/libwebsockets.swift",
+      "state" : {
+        "branch" : "main",
+        "revision" : "eba9a5d0818ff6f9d04b73387495c306319ca41b"
+      }
+    },
+    {
       "identity" : "swift-atomics",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-atomics.git",
