@@ -132,8 +132,8 @@ public class WebsocketClient {
         self.maxFrameSize = maxFrameSize
         self.onConnect = onConnect
 
-        lws_set_log_level(1151, nil)
-//        lws_set_log_level(0, nil)
+//        lws_set_log_level(1151, nil)
+        lws_set_log_level(0, nil)
 
         // Context Creation Info
         lwsContextCreationInfo = lws_context_creation_info()
@@ -199,7 +199,8 @@ public class WebsocketClient {
         lwsCCInfo.path = lwsCCInfoPath.toCPointer()
         // TODO: Use query and all other params?
 //        lwsCCInfo.host = lws_canonical_hostname(context)
-        lwsCCInfo.host = lwsCCInfoHost.toCPointer()
+        let lwsCCInfoHostHeader = "\(host):\(port)".utf8CString
+        lwsCCInfo.host = lwsCCInfoHostHeader.toCPointer()
         let lwsCCInfoOrigin = origin.utf8CString
         lwsCCInfo.origin = lwsCCInfoOrigin.toCPointer()
         lwsCCInfo.protocol = lwsProtocols.name
@@ -219,6 +220,7 @@ public class WebsocketClient {
         // Make sure the below variables are retained until function end
         _ = lwsProtocolName.count
         _ = lwsCCInfoHost.count
+        _ = lwsCCInfoHostHeader.count
         _ = lwsCCInfoPath.count
         _ = lwsCCInfoOrigin.count
     }
