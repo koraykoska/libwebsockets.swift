@@ -317,7 +317,10 @@ public class WebsocketClient {
             if let websocket, !isClosedForever {
                 self.lwsCloseStatus.withLockedValue({ $0 = reason })
                 var closeReasonText = ""
-                lws_close_reason(websocket, reason, &closeReasonText, 0)
+//                lws_close_reason(websocket, reason, &closeReasonText, 0)
+                let callerText = "libwebsockets-client".utf8CString
+                let caller = callerText.toCPointer()
+                lws_close_free_wsi(websocket, reason, caller)
 
                 // This is necessary because close is called on deinit and
                 // the async execution means onCloseCallback is gone by
@@ -326,6 +329,9 @@ public class WebsocketClient {
                 self.eventLoop.execute {
                     onCloseCallback?.value(reason)
                 }
+
+                // Make sure to retain variables until scope end
+                _ = callerText.count
             }
         }
     }
