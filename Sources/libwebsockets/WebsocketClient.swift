@@ -333,7 +333,7 @@ public class WebsocketClient {
                 self.send("".data(using: .utf8)!, opcode: .close(reason: reason), promise: promise)
 
                 if wait {
-                    lws_service(websocket, 250)
+                    lws_service(context, 250)
                 }
             }
         }
