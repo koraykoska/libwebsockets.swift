@@ -322,7 +322,6 @@ public class WebsocketClient {
     public func close(reason: lws_close_status, wait: Bool = false) {
         closeLock.withLock {
             if !isClosedForever {
-                self.lwsCloseStatus.withLockedValue({ $0 = reason })
 //                var closeReasonText = ""
 //                lws_close_reason(websocket, reason, &closeReasonText, 0)
 //                let callerText = "libwebsockets-client".utf8CString
@@ -332,6 +331,10 @@ public class WebsocketClient {
 
                 let promise = self.eventLoop.makePromise(of: Void.self)
                 self.send("".data(using: .utf8)!, opcode: .close(reason: reason), promise: promise)
+
+                // This MUST be set after the send close opcode, as send won't work after this.
+                self.lwsCloseStatus.withLockedValue({ $0 = reason })
+
                 do {
                     if wait {
                         let timeoutTask = self.eventLoop.scheduleTask(in: .seconds(5), {
