@@ -342,7 +342,11 @@ public class WebsocketClient {
                         }.wait()
                     }
                 } catch {
-                    // The close failed. Do nothing.
+                    // The close failed. Notify user.
+                    let onCloseCallback = self.onCloseCallback
+                    self.eventLoop.execute {
+                        onCloseCallback?.value(reason)
+                    }
                 }
             }
         }
