@@ -322,18 +322,31 @@ public class WebsocketClient {
     public func close(reason: lws_close_status, wait: Bool = false) {
         closeLock.withLock {
             if !isClosedForever {
-//                var closeReasonText = ""
-//                lws_close_reason(websocket, reason, &closeReasonText, 0)
-//                let callerText = "libwebsockets-client".utf8CString
-//                let caller = callerText.toCPointer()
-//                lws_close_free_wsi(websocket, reason, caller)
-//                lws_set_timeout(websocket, PENDING_TIMEOUT_CLOSE_SEND, LWS_TO_KILL_SYNC)
+                //                var closeReasonText = ""
+                //                lws_close_reason(websocket, reason, &closeReasonText, 0)
+                //                let callerText = "libwebsockets-client".utf8CString
+                //                let caller = callerText.toCPointer()
+                //                lws_close_free_wsi(websocket, reason, caller)
+                //                lws_set_timeout(websocket, PENDING_TIMEOUT_CLOSE_SEND, LWS_TO_KILL_SYNC)
 
                 let promise = self.eventLoop.makePromise(of: Void.self)
                 self.send("".data(using: .utf8)!, opcode: .close(reason: reason), promise: promise)
+                let future = promise.futureResult.always { _ in
+                    if wait {
+                        lws_service(self.context, 250)
+                    }
+                }
 
                 if wait {
-                    lws_service(context, 250)
+                    let timeout = self.eventLoop.scheduleTask(in: .seconds(5), {
+                        promise.fail(Error.websocketWriteFailed)
+                    })
+                    do {
+                        _ = try future.always { _ in
+                            timeout.cancel()
+                        }.wait()
+                    } catch {
+                    }
                 }
             }
         }
