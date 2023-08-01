@@ -331,18 +331,21 @@ public class WebsocketClient {
 
                 let promise = self.eventLoop.makePromise(of: Void.self)
                 self.send("".data(using: .utf8)!, opcode: .close(reason: reason), promise: promise)
-                let future = promise.futureResult.always { _ in
-                    if wait {
-                        lws_service(self.context, 250)
-                    }
-                }
 
                 if wait {
-                    let timeout = self.eventLoop.scheduleTask(in: .seconds(5), {
-                        promise.fail(Error.websocketWriteFailed)
+                    let timeout = self.eventLoop.scheduleTask(in: .seconds(1), {
+                        let timeout2 = self.eventLoop.scheduleTask(in: .seconds(5), {
+                            promise.fail(Error.websocketWriteFailed)
+                        })
+                        _ = promise.futureResult.always { _ in
+                            timeout2.cancel()
+                        }
+                        DispatchQueue(label: "tmp-websocket-client-closer").async {
+                            lws_service(self.context, 250)
+                        }
                     })
                     do {
-                        _ = try future.always { _ in
+                        _ = try promise.futureResult.always { _ in
                             timeout.cancel()
                         }.wait()
                     } catch {
