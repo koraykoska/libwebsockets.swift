@@ -332,15 +332,17 @@ public class WebsocketClient {
                 let promise = self.eventLoop.makePromise(of: Void.self)
                 self.send("".data(using: .utf8)!, opcode: .close(reason: reason), promise: promise)
 
-                // This MUST be set after the send close opcode, as send won't work after this.
-                self.lwsCloseStatus.withLockedValue({ $0 = reason })
+                let future = promise.futureResult.always { _ in
+                    // This MUST be set after the send close opcode, as send won't work after this.
+                    self.lwsCloseStatus.withLockedValue({ $0 = reason })
+                }
 
                 do {
                     if wait {
                         let timeoutTask = self.eventLoop.scheduleTask(in: .seconds(5), {
                             promise.fail(Error.websocketWriteFailed)
                         })
-                        try promise.futureResult.always { _ in
+                        try future.always { _ in
                             timeoutTask.cancel()
                         }.wait()
                     }
