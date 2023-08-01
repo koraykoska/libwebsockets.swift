@@ -637,6 +637,29 @@ private func websocketCallback(
         // We know the reason already in LWS_CALLBACK_WS_PEER_INITIATED_CLOSE
         // Or the custom close() function if initiated from the client.
 
+        guard let websocketClient else {
+            return 1
+        }
+
+        // This means something happened which is non-conform. Still notify.
+        websocketClient.closeLock.withLock {
+            if !websocketClient.isClosedForever {
+                var closeReason = LWS_CLOSE_STATUS_NO_STATUS
+                if let inBytes, len >= 2 {
+                    let bytesRaw = inBytes.bindMemory(to: UInt16.self, capacity: 1)
+                    let status = UInt16(bigEndian: bytesRaw.pointee)
+                    closeReason = lws_close_status(UInt32(status))
+                }
+
+                websocketClient.lwsCloseStatus.withLockedValue({ $0 = closeReason })
+
+                let onCloseCallback = websocketClient.onCloseCallback
+                websocketClient.eventLoop.execute {
+                    onCloseCallback?.value(closeReason)
+                }
+            }
+        }
+
         // TODO: Do we need this? If yes find a better place
 //        lws_context_destroy(lws_get_context(wsi))
         break
