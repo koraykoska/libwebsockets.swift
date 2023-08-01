@@ -247,7 +247,7 @@ public class WebsocketClient {
     }
 
     deinit {
-        self.close(reason: LWS_CLOSE_STATUS_GOINGAWAY)
+        self.close(reason: LWS_CLOSE_STATUS_GOINGAWAY, wait: true)
 
         protocolsPointer.deinitialize(count: 2)
         protocolsPointer.deallocate()
@@ -304,7 +304,7 @@ public class WebsocketClient {
         }
 
         switch opcode {
-        case .binary, .text, .continuation, .ping:
+        case .binary, .text, .continuation, .ping, .close:
             toBeWritten.withLockedValue({
                 $0.append((
                     data: data,
@@ -319,27 +319,31 @@ public class WebsocketClient {
         }
     }
 
-    public func close(reason: lws_close_status) {
+    public func close(reason: lws_close_status, wait: Bool = false) {
         closeLock.withLock {
-            if let websocket, !isClosedForever {
+            if !isClosedForever {
                 self.lwsCloseStatus.withLockedValue({ $0 = reason })
 //                var closeReasonText = ""
 //                lws_close_reason(websocket, reason, &closeReasonText, 0)
 //                let callerText = "libwebsockets-client".utf8CString
 //                let caller = callerText.toCPointer()
 //                lws_close_free_wsi(websocket, reason, caller)
-                lws_set_timeout(websocket, PENDING_TIMEOUT_CLOSE_SEND, LWS_TO_KILL_SYNC)
+//                lws_set_timeout(websocket, PENDING_TIMEOUT_CLOSE_SEND, LWS_TO_KILL_SYNC)
 
-                // This is necessary because close is called on deinit and
-                // the async execution means onCloseCallback is gone by
-                // the time we access it
-                let onCloseCallback = self.onCloseCallback
-                self.eventLoop.execute {
-                    onCloseCallback?.value(reason)
+                let promise = self.eventLoop.makePromise(of: Void.self)
+                self.send("".data(using: .utf8)!, opcode: .close(reason: reason), promise: promise)
+                do {
+                    if wait {
+                        let timeoutTask = self.eventLoop.scheduleTask(in: .seconds(5), {
+                            promise.fail(Error.websocketWriteFailed)
+                        })
+                        try promise.futureResult.always { _ in
+                            timeoutTask.cancel()
+                        }.wait()
+                    }
+                } catch {
+                    // The close failed. Do nothing.
                 }
-
-                // Make sure to retain variables until scope end
-//                _ = callerText.count
             }
         }
     }
@@ -571,13 +575,29 @@ private func websocketCallback(
             _ = textString.count
         case .ping:
             returnValue = ws_write_ping(wsi)
+        case .close(let reason):
+            returnValue = 1
+            var dataPointer = Array<UInt8>(nextToBeWritten.data)
+            lws_close_reason(wsi, reason, &dataPointer, nextToBeWritten.data.count)
+
+            // This is necessary because close is called on deinit and
+            // the async execution means onCloseCallback is gone by
+            // the time we access it
+            let onCloseCallback = websocketClient.onCloseCallback
+            websocketClient.eventLoop.execute {
+                onCloseCallback?.value(reason)
+            }
         }
+
         // Now return the returnValue, but first make sure to resolve the promise
-        if returnValue == 0 {
+        // Close should return non-null. It still succeeded.
+        if returnValue == 0 || nextToBeWritten.opcode.isClose() {
             nextToBeWritten.promise?.succeed()
         } else {
             nextToBeWritten.promise?.fail(WebsocketClient.Error.websocketWriteFailed)
         }
+
+        // Return the returnValue.
         return returnValue
     case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
         guard let websocketClient else {

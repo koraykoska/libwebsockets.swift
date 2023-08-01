@@ -1,11 +1,22 @@
+import Clibwebsockets
+
 public enum WebsocketScheme: String, Sendable {
     case ws = "ws"
     case wss = "wss"
 }
 
-public enum WebsocketOpcode: String, Sendable {
-    case binary = "binary"
-    case text = "text"
-    case continuation = "continuation"
-    case ping = "ping"
+public enum WebsocketOpcode: Sendable, Equatable {
+    case binary
+    case text
+    case continuation
+    case ping
+    case close(reason: lws_close_status)
+
+    func isClose() -> Bool {
+        if case .close = self {
+            return true
+        }
+
+        return false
+    }
 }
