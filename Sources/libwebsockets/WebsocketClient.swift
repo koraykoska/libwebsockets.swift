@@ -337,14 +337,12 @@ public class WebsocketClient {
                     // Fast kill for deinit
                     lws_set_timeout(websocket, PENDING_TIMEOUT_CLOSE_SEND, LWS_TO_KILL_SYNC)
 
-                    self.closeLock.withLock {
-                        if !self.isClosedForever {
-                            self.lwsCloseStatus.withLockedValue({ $0 = reason })
+                    if !self.isClosedForever {
+                        self.lwsCloseStatus.withLockedValue({ $0 = reason })
 
-                            let onCloseCallback = self.onCloseCallback
-                            self.eventLoop.execute {
-                                onCloseCallback?.value(reason)
-                            }
+                        let onCloseCallback = self.onCloseCallback
+                        self.eventLoop.execute {
+                            onCloseCallback?.value(reason)
                         }
                     }
                 } else {
