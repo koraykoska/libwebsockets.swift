@@ -319,7 +319,11 @@ public class WebsocketClient {
         }
     }
 
-    public func close(reason: lws_close_status, wait: Bool = false) {
+    public func close(reason: lws_close_status) {
+        self.close(reason: reason, wait: false)
+    }
+
+    private func close(reason: lws_close_status, wait: Bool) {
         closeLock.withLock {
             if !isClosedForever {
                 //                var closeReasonText = ""
@@ -329,23 +333,22 @@ public class WebsocketClient {
                 //                lws_close_free_wsi(websocket, reason, caller)
                 //                lws_set_timeout(websocket, PENDING_TIMEOUT_CLOSE_SEND, LWS_TO_KILL_SYNC)
 
-                let promise = self.eventLoop.makePromise(of: Void.self)
-                self.send("".data(using: .utf8)!, opcode: .close(reason: reason), promise: promise)
-
                 if wait {
-                    DispatchQueue(label: "tmp-websocket-client-closer").async {
-                        lws_service(self.context, 250)
-                    }
+                    // Fast kill for deinit
+                    lws_set_timeout(websocket, PENDING_TIMEOUT_CLOSE_SEND, LWS_TO_KILL_SYNC)
 
-                    let timeout = self.eventLoop.scheduleTask(in: .seconds(5), {
-                        promise.fail(Error.websocketWriteFailed)
-                    })
-                    do {
-                        _ = try promise.futureResult.always { _ in
-                            timeout.cancel()
-                        }.wait()
-                    } catch {
+                    self.closeLock.withLock {
+                        if !self.isClosedForever {
+                            self.lwsCloseStatus.withLockedValue({ $0 = reason })
+
+                            let onCloseCallback = self.onCloseCallback
+                            self.eventLoop.execute {
+                                onCloseCallback?.value(reason)
+                            }
+                        }
                     }
+                } else {
+                    self.send("".data(using: .utf8)!, opcode: .close(reason: reason))
                 }
             }
         }
