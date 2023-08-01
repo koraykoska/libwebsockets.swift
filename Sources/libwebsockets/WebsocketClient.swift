@@ -605,7 +605,9 @@ private func websocketCallback(
         // This is emitted when the client was closed.
         // We know the reason already in LWS_CALLBACK_WS_PEER_INITIATED_CLOSE
         // Or the custom close() function if initiated from the client.
-        lws_context_destroy(lws_get_context(wsi))
+
+        // TODO: Do we need this? If yes find a better place
+//        lws_context_destroy(lws_get_context(wsi))
         break
     case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
         guard let websocketClient else {
