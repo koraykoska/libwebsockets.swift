@@ -332,26 +332,8 @@ public class WebsocketClient {
                 let promise = self.eventLoop.makePromise(of: Void.self)
                 self.send("".data(using: .utf8)!, opcode: .close(reason: reason), promise: promise)
 
-                let future = promise.futureResult.always { _ in
-                    // This MUST be set after the send close opcode, as send won't work after this.
-                    self.lwsCloseStatus.withLockedValue({ $0 = reason })
-                }
-
-                do {
-                    if wait {
-                        let timeoutTask = self.eventLoop.scheduleTask(in: .seconds(5), {
-                            promise.fail(Error.websocketWriteFailed)
-                        })
-                        try future.always { _ in
-                            timeoutTask.cancel()
-                        }.wait()
-                    }
-                } catch {
-                    // The close failed. Notify user.
-                    let onCloseCallback = self.onCloseCallback
-                    self.eventLoop.execute {
-                        onCloseCallback?.value(reason)
-                    }
+                if wait {
+                    lws_service(websocket, 250)
                 }
             }
         }
@@ -589,12 +571,15 @@ private func websocketCallback(
             var dataPointer = Array<UInt8>(nextToBeWritten.data)
             lws_close_reason(wsi, reason, &dataPointer, nextToBeWritten.data.count)
 
-            // This is necessary because close is called on deinit and
-            // the async execution means onCloseCallback is gone by
-            // the time we access it
-            let onCloseCallback = websocketClient.onCloseCallback
-            websocketClient.eventLoop.execute {
-                onCloseCallback?.value(reason)
+            websocketClient.closeLock.withLock {
+                if !websocketClient.isClosedForever {
+                    websocketClient.lwsCloseStatus.withLockedValue({ $0 = reason })
+
+                    let onCloseCallback = websocketClient.onCloseCallback
+                    websocketClient.eventLoop.execute {
+                        onCloseCallback?.value(reason)
+                    }
+                }
             }
         }
 
