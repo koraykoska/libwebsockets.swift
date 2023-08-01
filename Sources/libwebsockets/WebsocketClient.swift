@@ -324,11 +324,12 @@ public class WebsocketClient {
         closeLock.withLock {
             if let websocket, !isClosedForever {
                 self.lwsCloseStatus.withLockedValue({ $0 = reason })
-                var closeReasonText = ""
+//                var closeReasonText = ""
 //                lws_close_reason(websocket, reason, &closeReasonText, 0)
-                let callerText = "libwebsockets-client".utf8CString
-                let caller = callerText.toCPointer()
-                lws_close_free_wsi(websocket, reason, caller)
+//                let callerText = "libwebsockets-client".utf8CString
+//                let caller = callerText.toCPointer()
+//                lws_close_free_wsi(websocket, reason, caller)
+                lws_set_timeout(websocket, PENDING_TIMEOUT_CLOSE_SEND, LWS_TO_KILL_SYNC)
 
                 // This is necessary because close is called on deinit and
                 // the async execution means onCloseCallback is gone by
@@ -339,7 +340,7 @@ public class WebsocketClient {
                 }
 
                 // Make sure to retain variables until scope end
-                _ = callerText.count
+//                _ = callerText.count
             }
         }
     }
@@ -586,18 +587,20 @@ private func websocketCallback(
 
         // This means the other side initiated a close.
         websocketClient.closeLock.withLock {
-            var closeReason = LWS_CLOSE_STATUS_NO_STATUS
-            if let inBytes, len >= 2 {
-                let bytesRaw = inBytes.bindMemory(to: UInt16.self, capacity: 1)
-                let status = UInt16(bigEndian: bytesRaw.pointee)
-                closeReason = lws_close_status(UInt32(status))
-            }
+            if !websocketClient.isClosedForever {
+                var closeReason = LWS_CLOSE_STATUS_NO_STATUS
+                if let inBytes, len >= 2 {
+                    let bytesRaw = inBytes.bindMemory(to: UInt16.self, capacity: 1)
+                    let status = UInt16(bigEndian: bytesRaw.pointee)
+                    closeReason = lws_close_status(UInt32(status))
+                }
 
-            websocketClient.lwsCloseStatus.withLockedValue({ $0 = closeReason })
+                websocketClient.lwsCloseStatus.withLockedValue({ $0 = closeReason })
 
-            let onCloseCallback = websocketClient.onCloseCallback
-            websocketClient.eventLoop.execute {
-                onCloseCallback?.value(closeReason)
+                let onCloseCallback = websocketClient.onCloseCallback
+                websocketClient.eventLoop.execute {
+                    onCloseCallback?.value(closeReason)
+                }
             }
         }
         break
