@@ -247,7 +247,6 @@ public class WebsocketClient {
     }
 
     deinit {
-        print("DEINIT")
         self.close(reason: LWS_CLOSE_STATUS_GOINGAWAY)
 
         protocolsPointer.deinitialize(count: 2)
