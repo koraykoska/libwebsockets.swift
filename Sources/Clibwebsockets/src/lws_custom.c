@@ -4,19 +4,25 @@
 
 int ws_write_bin(struct lws *wsi, char *bin, size_t len, int is_start, int is_fin)
 {
-    unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + len + LWS_SEND_BUFFER_POST_PADDING];
+    unsigned char *buf;
+    buf = malloc(LWS_SEND_BUFFER_PRE_PADDING + len + LWS_SEND_BUFFER_POST_PADDING);
     unsigned char *p = &buf[LWS_SEND_BUFFER_PRE_PADDING];
     memcpy(p, bin, len);
-    return lws_write(wsi, p, len, lws_write_ws_flags(LWS_WRITE_BINARY, is_start, is_fin)) < len ? -1 : 0;
+    int retValue = lws_write(wsi, p, len, lws_write_ws_flags(LWS_WRITE_BINARY, is_start, is_fin)) < len ? -1 : 0;
+    free(buf);
+    return retValue;
 }
 
 int ws_write_text(struct lws *wsi, char *string, int is_start, int is_fin)
 {
     size_t len = strlen(string);
-    unsigned char buf[LWS_SEND_BUFFER_PRE_PADDING + len + LWS_SEND_BUFFER_POST_PADDING];
+    unsigned char *buf;
+    buf = malloc(LWS_SEND_BUFFER_PRE_PADDING + len + LWS_SEND_BUFFER_POST_PADDING);
     unsigned char *p = &buf[LWS_SEND_BUFFER_PRE_PADDING];
     memcpy(p, string, len);
-    return lws_write(wsi, p, len, lws_write_ws_flags(LWS_WRITE_TEXT, is_start, is_fin)) < len ? -1 : 0;
+    int retValue = lws_write(wsi, p, len, lws_write_ws_flags(LWS_WRITE_TEXT, is_start, is_fin)) < len ? -1 : 0;
+    free(buf);
+    return retValue;
 }
 
 int ws_write_ping(struct lws *wsi)
