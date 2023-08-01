@@ -333,16 +333,12 @@ public class WebsocketClient {
                 self.send("".data(using: .utf8)!, opcode: .close(reason: reason), promise: promise)
 
                 if wait {
-                    let timeout = self.eventLoop.scheduleTask(in: .seconds(1), {
-                        let timeout2 = self.eventLoop.scheduleTask(in: .seconds(5), {
-                            promise.fail(Error.websocketWriteFailed)
-                        })
-                        _ = promise.futureResult.always { _ in
-                            timeout2.cancel()
-                        }
-                        DispatchQueue(label: "tmp-websocket-client-closer").async {
-                            lws_service(self.context, 250)
-                        }
+                    DispatchQueue(label: "tmp-websocket-client-closer").async {
+                        lws_service(self.context, 250)
+                    }
+
+                    let timeout = self.eventLoop.scheduleTask(in: .seconds(5), {
+                        promise.fail(Error.websocketWriteFailed)
                     })
                     do {
                         _ = try promise.futureResult.always { _ in
