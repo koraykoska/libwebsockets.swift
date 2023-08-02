@@ -579,6 +579,10 @@ private func websocketCallback(
                             websocketClient.close(reason: LWS_CLOSE_STATUS_INVALID_PAYLOAD)
                             return
                         }
+                        guard text.utf8.count == frameSequence.textBuffer.count else {
+                            websocketClient.close(reason: LWS_CLOSE_STATUS_INVALID_PAYLOAD)
+                            return
+                        }
                         websocketClient.onTextCallback?.value(websocketClient, text)
                     }
                     break
