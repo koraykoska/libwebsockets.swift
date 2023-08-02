@@ -55,6 +55,11 @@ void *lws_protocols_zero(struct lws_protocols *sz)
     memset(sz, 0, sizeof(struct lws_protocols));
 }
 
+void *lws_extension_zero(struct lws_extension *sz)
+{
+    memset(sz, 0, sizeof(struct lws_extension));
+}
+
 void ws_set_guiduid(struct lws_context_creation_info *info)
 {
     info->uid = -1;

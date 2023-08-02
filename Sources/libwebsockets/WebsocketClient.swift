@@ -28,10 +28,13 @@ public class WebsocketClient {
     }
     private let selfPointer: UnsafeMutablePointer<WeakSelf> = UnsafeMutablePointer<WeakSelf>.allocate(capacity: 1)
     private let protocolsPointer: UnsafeMutablePointer<lws_protocols> = UnsafeMutablePointer<lws_protocols>.allocate(capacity: 2)
+    private let extensionsPointer: UnsafeMutablePointer<lws_extension> = UnsafeMutablePointer<lws_extension>.allocate(capacity: 2)
 
     private var lwsContextCreationInfo: lws_context_creation_info!
     private var lwsProtocols: lws_protocols!
     private var lwsEmptyProtocol: lws_protocols!
+    private var permessageDeflateExtension: lws_extension!
+    private var emptyExtension: lws_extension!
     private var lwsCCInfo: lws_client_connect_info!
     private var context: OpaquePointer!
     private var websocket: OpaquePointer!
@@ -129,6 +132,7 @@ public class WebsocketClient {
         headers: [String: String] = [:],
         origin: String = "localhost",
         maxFrameSize: Int,
+        permessageDeflate: Bool = true,
         connectionTimeoutSeconds: UInt32 = 10,
         eventLoop: EventLoop,
         onConnect: EventLoopPromise<Void>
@@ -177,22 +181,46 @@ public class WebsocketClient {
         lws_protocols_zero(&lwsProtocols)
         let lwsProtocolName = "libwebsockets-protocol".utf8CString
         lwsProtocols.name = lwsProtocolName.toCPointer()
-
         lwsProtocols.callback = websocketCallback
         lwsProtocols.per_session_data_size = 0
         lwsProtocols.rx_buffer_size = maxFrameSize
 
         protocolsPointer.pointee = lwsProtocols
+
         lwsEmptyProtocol = lws_protocols()
         lws_protocols_zero(&lwsEmptyProtocol)
         lwsEmptyProtocol.name = nil
         lwsEmptyProtocol.callback = nil
         lwsEmptyProtocol.per_session_data_size = 0
         lwsEmptyProtocol.rx_buffer_size = 0
+
         protocolsPointer.advanced(by: 1).pointee = lwsEmptyProtocol
         // END Protocols
 
+        // Extensions
+        permessageDeflateExtension = lws_extension()
+        lws_extension_zero(&permessageDeflateExtension)
+        let permessageName = "permessage-deflate".utf8CString
+        permessageDeflateExtension.name = permessageName.toCPointer()
+        permessageDeflateExtension.callback = lws_extension_callback_pm_deflate
+        let permessageHeader = "permessage-deflate; client_no_context_takeover".utf8CString
+        permessageDeflateExtension.client_offer = permessageHeader.toCPointer()
+
+        extensionsPointer.pointee = permessageDeflateExtension
+
+        emptyExtension = lws_extension()
+        lws_extension_zero(&emptyExtension)
+        emptyExtension.name = nil
+        emptyExtension.callback = nil
+        emptyExtension.client_offer = nil
+
+        extensionsPointer.advanced(by: 1).pointee = emptyExtension
+        // END Extensions
+
         lwsContextCreationInfo.protocols = UnsafePointer(protocolsPointer)
+        if permessageDeflate {
+            lwsContextCreationInfo.extensions = UnsafePointer(extensionsPointer)
+        }
         // Below sets guid and uid to -1. Swift doesn't detect signed int correctly. No idea why.
         ws_set_guiduid(&lwsContextCreationInfo)
         // We did the below before but it was not always correct due to different int sizes.
@@ -241,6 +269,8 @@ public class WebsocketClient {
 
         // Make sure the below variables are retained until function end
         _ = lwsProtocolName.count
+        _ = permessageName.count
+        _ = permessageHeader.count
         _ = lwsCCInfoHost.count
         _ = lwsCCInfoHostHeader.count
         _ = lwsCCInfoPath.count
@@ -253,15 +283,18 @@ public class WebsocketClient {
         protocolsPointer.deinitialize(count: 2)
         protocolsPointer.deallocate()
 
+        extensionsPointer.deinitialize(count: 2)
+        extensionsPointer.deallocate()
+
+        // Destroy context. User nullify necessary to prevent segfault in future callbacks.
+        ws_context_user_nullify(context)
+        lws_context_destroy(context)
+
         // Make sure to free this only after the websocket is destroyed
         // Otherwise we might receive a callback, try to use this pointer
         // And crash...
         selfPointer.deinitialize(count: 1)
         selfPointer.deallocate()
-
-        // Destroy context. User nullify necessary to prevent segfault in future callbacks.
-        ws_context_user_nullify(context)
-        lws_context_destroy(context)
     }
 
     // MARK: - Helpers

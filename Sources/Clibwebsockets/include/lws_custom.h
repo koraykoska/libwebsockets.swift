@@ -12,6 +12,7 @@ int ws_write_pong(struct lws *wsi);
 void *lws_context_creation_info_zero(struct lws_context_creation_info *sz);
 void *lws_client_connect_info_zero(struct lws_client_connect_info *sz);
 void *lws_protocols_zero(struct lws_protocols *sz);
+void *lws_extension_zero(struct lws_extension *sz);
 
 void ws_set_guiduid(struct lws_context_creation_info *info);
 
