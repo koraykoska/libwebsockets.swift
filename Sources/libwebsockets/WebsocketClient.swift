@@ -287,15 +287,15 @@ public class WebsocketClient {
     deinit {
         self.close(reason: LWS_CLOSE_STATUS_GOINGAWAY, wait: true)
 
+        // Destroy context. User nullify necessary to prevent segfault in future callbacks.
+        ws_context_user_nullify(context)
+        lws_context_destroy(context)
+
         protocolsPointer.deinitialize(count: 2)
         protocolsPointer.deallocate()
 
         extensionsPointer.deinitialize(count: 2)
         extensionsPointer.deallocate()
-
-        // Destroy context. User nullify necessary to prevent segfault in future callbacks.
-        ws_context_user_nullify(context)
-        lws_context_destroy(context)
 
         // Make sure to free this only after the websocket is destroyed
         // Otherwise we might receive a callback, try to use this pointer
