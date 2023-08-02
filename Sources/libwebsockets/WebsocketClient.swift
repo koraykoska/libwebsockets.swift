@@ -765,12 +765,14 @@ private func websocketCallback(
     if let websocketClient, websocketClient.isClosedForever {
         // If for whatever reason we get another callback after the connection being closed, close again.
 
-        let closeReason = websocketClient.lwsCloseStatus.withLockedValue({ $0 }) ?? LWS_CLOSE_STATUS_GOINGAWAY
+        // THIS DOES NOT WORK
 
-        var dataPointer = ""
-        lws_close_reason(wsi, closeReason, &dataPointer, dataPointer.count)
-
-        return -1
+//        let closeReason = websocketClient.lwsCloseStatus.withLockedValue({ $0 }) ?? LWS_CLOSE_STATUS_GOINGAWAY
+//
+//        var dataPointer = ""
+//        lws_close_reason(wsi, closeReason, &dataPointer, dataPointer.count)
+//
+//        return -1
     }
 
     return 0
