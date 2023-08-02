@@ -233,6 +233,8 @@ public class WebsocketClient {
             break
         }
 
+        let tmpContext = ws_context_user(context).assumingMemoryBound(to: WeakSelf.self).pointee
+
         // Connect
         websocket = lws_client_connect_via_info(&lwsCCInfo)
 

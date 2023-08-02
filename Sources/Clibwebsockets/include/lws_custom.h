@@ -17,4 +17,6 @@ void ws_set_guiduid(struct lws_context_creation_info *info);
 
 void ws_set_ssl_connection(struct lws_client_connect_info *clientInfo);
 
+void *ws_context_user(struct lws_context *context);
+
 #endif /* lws_custom_h */

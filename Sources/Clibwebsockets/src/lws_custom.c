@@ -1,6 +1,7 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <stdlib.h>
+#include "private-lib-core.h"
 
 int ws_write_bin(struct lws *wsi, char *bin, size_t len, int is_start, int is_fin)
 {
@@ -64,4 +65,9 @@ void ws_set_ssl_connection(struct lws_client_connect_info *clientInfo)
 {
     // LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_PIPELINE
     clientInfo->ssl_connection = LCCSCF_USE_SSL;
+}
+
+void *ws_context_user(struct lws_context *context)
+{
+    return context->user_space;
 }
