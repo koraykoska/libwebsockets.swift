@@ -124,6 +124,9 @@ public class WebsocketClient {
 
     fileprivate var onTextCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, String) -> ()>?
     fileprivate var onBinaryCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
+    fileprivate var onFragmentCallback: NIOLoopBoundBox<
+        @Sendable (_ ws: WebsocketClient, _ data: Data, _ isText: Bool, _ isFirst: Bool, _ isFinal: Bool) -> ()
+    >?
     fileprivate var onPingCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
     fileprivate var onPongCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
     fileprivate var onCloseCallback: NIOLoopBoundBox<@Sendable (lws_close_status) -> ()>?
@@ -452,6 +455,25 @@ public class WebsocketClient {
         }
     }
 
+    public func onFragment(
+        _ callback: @Sendable @escaping (
+            _ ws: WebsocketClient, _ data: Data, _ isText: Bool, _ isFirst: Bool, _ isFinal: Bool
+        ) -> ()
+    ) {
+        if !self.eventLoop.inEventLoop {
+            self.eventLoop.execute {
+                self.onFragment(callback)
+            }
+            return
+        }
+
+        if let onFragmentCallback {
+            onFragmentCallback.value = callback
+        } else {
+            self.onFragmentCallback = .init(callback, eventLoop: self.eventLoop)
+        }
+    }
+
     public func onPong(_ callback: @Sendable @escaping (WebsocketClient, Data) -> ()) {
         if !self.eventLoop.inEventLoop {
             self.eventLoop.execute {
@@ -547,6 +569,10 @@ private func websocketCallback(
         let isFirst = lws_is_first_fragment(wsi).fromCBool()
         let isFinal = lws_is_final_fragment(wsi).fromCBool()
         let isBinary = lws_frame_is_binary(wsi).fromCBool()
+
+        websocketClient.eventLoop.execute {
+            websocketClient.onFragmentCallback?.value(websocketClient, data, !isBinary, isFirst, isFinal)
+        }
 
         websocketClient.frameSequence.withLockedValue({ currentFrameSequence in
             if isFirst && isFinal {
