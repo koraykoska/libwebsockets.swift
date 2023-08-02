@@ -157,7 +157,7 @@ public class WebsocketClient {
         self.onConnect = onConnect
 
         self.permessageDeflateExtensionName = "permessage-deflate".utf8CString
-        self.permessageDeflateExtensionHeader = "permessage-deflate".utf8CString
+        self.permessageDeflateExtensionHeader = "permessage-deflate; client_max_window_bits".utf8CString
 
         // Timeout to prevent leaking promise
         eventLoop.scheduleTask(in: .seconds(2 * Int64(connectionTimeoutSeconds)), {
@@ -575,7 +575,11 @@ private func websocketCallback(
                 case .text:
                     // TODO: Text callback
                     websocketClient.eventLoop.execute {
-                        websocketClient.onTextCallback?.value(websocketClient, frameSequence.textAsString)
+                        guard let text = frameSequence.textAsString else {
+                            websocketClient.close(reason: LWS_CLOSE_STATUS_INVALID_PAYLOAD)
+                            return
+                        }
+                        websocketClient.onTextCallback?.value(websocketClient, text)
                     }
                     break
                 default:
@@ -786,8 +790,8 @@ private func websocketCallback(
 private struct WebsocketFrameSequence: Sendable {
     var binaryBuffer: Data
     var textBuffer: Data
-    var textAsString: String {
-        return String(data: textBuffer, encoding: .utf8) ?? ""
+    var textAsString: String? {
+        return String(data: textBuffer, encoding: .utf8)
     }
     let type: WebsocketOpcode
     let lock: NIOLock
