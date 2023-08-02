@@ -100,6 +100,7 @@ public class WebsocketClient {
     public let headers: [String: String]
     public let origin: String
     public let maxFrameSize: Int
+    public let permessageDeflate: Bool
     public let eventLoop: EventLoop
 
     // Needs to be emptied after usage to not create a retain cycle
@@ -145,6 +146,7 @@ public class WebsocketClient {
         self.headers = headers
         self.origin = origin
         self.maxFrameSize = maxFrameSize
+        self.permessageDeflate = permessageDeflate
         self.eventLoop = eventLoop
         self.onConnect = onConnect
 
