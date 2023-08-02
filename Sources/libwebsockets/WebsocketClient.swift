@@ -205,7 +205,7 @@ public class WebsocketClient {
         let permessageName = "permessage-deflate".utf8CString
         permessageDeflateExtension.name = permessageName.toCPointer()
         permessageDeflateExtension.callback = lws_extension_callback_pm_deflate
-        let permessageHeader = "permessage-deflate".utf8CString
+        let permessageHeader = "permessage-deflate; client_max_window_bits".utf8CString
         permessageDeflateExtension.client_offer = permessageHeader.toCPointer()
 
         extensionsPointer.pointee = permessageDeflateExtension
