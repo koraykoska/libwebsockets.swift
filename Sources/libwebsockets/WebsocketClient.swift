@@ -45,6 +45,7 @@ public class WebsocketClient {
     /// nil until a close event is received. Do not rely soely on it as connection errors lead to a never initialized close status.
     /// Instead, check `wasConnected` first to make sure a connection has been established before checking this value.
     fileprivate let lwsCloseStatus: NIOLockedValueBox<lws_close_status?> = .init(nil)
+    fileprivate let waitingLwsCloseStatus: NIOLockedValueBox<lws_close_status?> = .init(nil)
 
     /// Internally managed buffer of frames. Emitted once the full message is there.
     fileprivate let frameSequence: NIOLockedValueBox<WebsocketFrameSequence?> = .init(nil)
@@ -472,7 +473,7 @@ private func websocketCallback(
     switch reason {
     case LWS_CALLBACK_CLIENT_ESTABLISHED:
         guard let websocketClient else {
-            return 1
+            return -1
         }
 
         websocketClient.wasConnected.withLockedValue({ $0 = true })
@@ -483,7 +484,7 @@ private func websocketCallback(
         break
     case LWS_CALLBACK_CLIENT_RECEIVE:
         guard let websocketClient else {
-            return 1
+            return -1
         }
         guard let inBytes else {
             // We don't really care. No bytes received means we don't do anything.
@@ -547,7 +548,7 @@ private func websocketCallback(
         break
     case LWS_CALLBACK_CLIENT_WRITEABLE:
         guard let websocketClient else {
-            return 1
+            return -1
         }
 
         guard let nextToBeWritten = websocketClient.toBeWritten.withLockedValue({ return $0.count > 0 ? $0.removeFirst() : nil }) else {
@@ -569,7 +570,7 @@ private func websocketCallback(
             var data = nextToBeWritten.data
             returnValue = data.withUnsafeMutableBytes { buffer in
                 guard let pointer = buffer.baseAddress else {
-                    return Int32(1)
+                    return -1
                 }
 
                 return ws_write_bin(
@@ -583,7 +584,7 @@ private func websocketCallback(
         case .text:
             // This will never be a continuation. So send as isStart
             guard let textString = String(data: nextToBeWritten.data, encoding: .utf8)?.utf8CString else {
-                returnValue = Int32(1)
+                returnValue = -1
                 break
             }
             let text = textString.toCPointer()
@@ -598,15 +599,12 @@ private func websocketCallback(
         case .ping:
             returnValue = ws_write_ping(wsi)
         case .close(let reason):
-            returnValue = 1
+            returnValue = -1
             var dataPointer = Array<UInt8>(nextToBeWritten.data)
             lws_close_reason(wsi, reason, &dataPointer, nextToBeWritten.data.count)
 
-            websocketClient.closeLock.withLock {
-                websocketClient.markAsClosed(reason: reason)
-            }
-
-            // Now that e
+            // We don't set to closed yet. Special callback for that.
+            websocketClient.waitingLwsCloseStatus.withLockedValue({ $0 = reason })
         }
 
         // Now return the returnValue, but first make sure to resolve the promise
@@ -621,7 +619,7 @@ private func websocketCallback(
         return returnValue
     case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
         guard let websocketClient else {
-            return 1
+            return -1
         }
 
         // This means the other side initiated a close.
@@ -636,28 +634,23 @@ private func websocketCallback(
         }
         break
     case LWS_CALLBACK_CLIENT_CLOSED:
-        // This is emitted when the client was closed.
-        // We know the reason already in LWS_CALLBACK_WS_PEER_INITIATED_CLOSE
-        // Or the custom close() function if initiated from the client.
-
         guard let websocketClient else {
-            return 1
+            return -1
         }
 
-        // This means something happened which is non-conform. Still notify.
-        var closeReason = LWS_CLOSE_STATUS_NO_STATUS
-        if let inBytes, len >= 2 {
+        var closeReason = websocketClient.waitingLwsCloseStatus.withLockedValue({ $0 })
+        if closeReason == nil, let inBytes, len >= 2 {
             let bytesRaw = inBytes.bindMemory(to: UInt16.self, capacity: 1)
             let status = UInt16(bigEndian: bytesRaw.pointee)
             closeReason = lws_close_status(UInt32(status))
         }
         websocketClient.closeLock.withLock {
-            websocketClient.markAsClosed(reason: closeReason)
+            websocketClient.markAsClosed(reason: closeReason ?? LWS_CLOSE_STATUS_NO_STATUS)
         }
         break
     case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
         guard let websocketClient else {
-            return 1
+            return -1
         }
 
         var description = ""
@@ -679,7 +672,7 @@ private func websocketCallback(
     case LWS_CALLBACK_CLIENT_RECEIVE_PONG:
         // TODO: onPong
         guard let websocketClient else {
-            return 1
+            return -1
         }
 
         var data = Data()
@@ -694,14 +687,14 @@ private func websocketCallback(
         break
     case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
         guard let websocketClient else {
-            return 1
+            return -1
         }
 
         // TODO: Append headers.
         // Here we have to append the user headers
 
         guard let inBytes else {
-            return 1
+            return -1
         }
         let p = inBytes.assumingMemoryBound(to: UnsafeMutablePointer<UInt8>?.self)
         let end = p.pointee?.advanced(by: len)
@@ -717,7 +710,7 @@ private func websocketCallback(
                 p,
                 end
             ) == 0 else {
-                return 1
+                return -1
             }
 
             // Make sure key and value are retained until this point
@@ -741,7 +734,7 @@ private func websocketCallback(
         var dataPointer = ""
         lws_close_reason(wsi, closeReason, &dataPointer, dataPointer.count)
 
-        return 1
+        return -1
     }
 
     return 0
