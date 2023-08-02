@@ -575,11 +575,11 @@ private func websocketCallback(
                 case .text:
                     // TODO: Text callback
                     websocketClient.eventLoop.execute {
-                        guard let text = frameSequence.textAsString else {
+                        guard let text = String(data: frameSequence.textBuffer, encoding: .utf8) else {
                             websocketClient.close(reason: LWS_CLOSE_STATUS_INVALID_PAYLOAD)
                             return
                         }
-                        guard text.utf8.count == frameSequence.textBuffer.count else {
+                        guard Data(text.utf8).count == frameSequence.textBuffer.count else {
                             websocketClient.close(reason: LWS_CLOSE_STATUS_INVALID_PAYLOAD)
                             return
                         }
@@ -794,9 +794,6 @@ private func websocketCallback(
 private struct WebsocketFrameSequence: Sendable {
     var binaryBuffer: Data
     var textBuffer: Data
-    var textAsString: String? {
-        return String(data: textBuffer, encoding: .utf8)
-    }
     let type: WebsocketOpcode
     let lock: NIOLock
 
