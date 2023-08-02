@@ -285,6 +285,15 @@ public class WebsocketClient {
     }
 
     deinit {
+        // The below is for rare cases where the connection neither succeeded nor failed yet.
+        try? eventLoop.scheduleTask(in: .zero, {
+            if let onConnect = self.onConnect {
+                onConnect.fail(Error.connectionError(description: "websocket freed (deinit called) before connection succeeded"))
+                self.onConnect = nil
+            }
+        }).futureResult.wait()
+
+        // Close if not yet closed
         self.close(reason: LWS_CLOSE_STATUS_GOINGAWAY, wait: true)
 
         // Destroy context. User nullify necessary to prevent segfault in future callbacks.
@@ -552,6 +561,8 @@ private func websocketCallback(
                         websocketClient.eventLoop.execute {
                             websocketClient.onTextCallback?.value(websocketClient, stringMessage)
                         }
+                    } else {
+                        websocketClient.close(reason: LWS_CLOSE_STATUS_INVALID_PAYLOAD)
                     }
                 }
 
@@ -576,10 +587,6 @@ private func websocketCallback(
                     // TODO: Text callback
                     websocketClient.eventLoop.execute {
                         guard let text = String(data: frameSequence.textBuffer, encoding: .utf8) else {
-                            websocketClient.close(reason: LWS_CLOSE_STATUS_INVALID_PAYLOAD)
-                            return
-                        }
-                        guard Data(text.utf8).count == frameSequence.textBuffer.count else {
                             websocketClient.close(reason: LWS_CLOSE_STATUS_INVALID_PAYLOAD)
                             return
                         }
