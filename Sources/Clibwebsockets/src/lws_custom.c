@@ -67,7 +67,7 @@ void ws_set_ssl_connection(struct lws_client_connect_info *clientInfo)
     clientInfo->ssl_connection = LCCSCF_USE_SSL;
 }
 
-void *ws_context_user(struct lws_context *context)
+void ws_context_user_nullify(struct lws_context *context)
 {
-    return context->user_space;
+    context->user_space = NULL;
 }

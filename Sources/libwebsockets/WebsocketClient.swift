@@ -233,8 +233,6 @@ public class WebsocketClient {
             break
         }
 
-        let tmpContext = ws_context_user(context).assumingMemoryBound(to: WeakSelf.self).pointee
-
         // Connect
         websocket = lws_client_connect_via_info(&lwsCCInfo)
 
@@ -261,7 +259,8 @@ public class WebsocketClient {
         selfPointer.deinitialize(count: 1)
         selfPointer.deallocate()
 
-        // Destroy context
+        // Destroy context. User nullify necessary to prevent segfault in future callbacks.
+        ws_context_user_nullify(context)
         lws_context_destroy(context)
     }
 
