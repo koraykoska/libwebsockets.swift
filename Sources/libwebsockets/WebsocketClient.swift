@@ -575,7 +575,7 @@ private func websocketCallback(
                 case .text:
                     // TODO: Text callback
                     websocketClient.eventLoop.execute {
-                        websocketClient.onTextCallback?.value(websocketClient, frameSequence.textBuffer)
+                        websocketClient.onTextCallback?.value(websocketClient, frameSequence.textAsString)
                     }
                     break
                 default:
@@ -785,13 +785,16 @@ private func websocketCallback(
 
 private struct WebsocketFrameSequence: Sendable {
     var binaryBuffer: Data
-    var textBuffer: String
+    var textBuffer: Data
+    var textAsString: String {
+        return String(data: textBuffer, encoding: .utf8) ?? ""
+    }
     let type: WebsocketOpcode
     let lock: NIOLock
 
     init(type: WebsocketOpcode) {
         self.binaryBuffer = Data()
-        self.textBuffer = .init()
+        self.textBuffer = Data()
         self.type = type
         self.lock = .init()
     }
@@ -802,10 +805,9 @@ private struct WebsocketFrameSequence: Sendable {
             case .binary:
                 self.binaryBuffer.append(frame)
             case .text:
-                if let string = String(data: frame, encoding: .utf8) {
-                    self.textBuffer += string
-                }
-            default: break
+                self.textBuffer.append(frame)
+            default:
+                break
             }
         }
     }
