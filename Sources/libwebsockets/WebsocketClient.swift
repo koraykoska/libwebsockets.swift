@@ -31,11 +31,17 @@ public class WebsocketClient {
     private let extensionsPointer: UnsafeMutablePointer<lws_extension> = UnsafeMutablePointer<lws_extension>.allocate(capacity: 2)
 
     private var lwsContextCreationInfo: lws_context_creation_info!
+
     private var lwsProtocols: lws_protocols!
     private var lwsEmptyProtocol: lws_protocols!
+
     private var permessageDeflateExtension: lws_extension!
+    private let permessageDeflateExtensionName: ContiguousArray<CChar>
+    private let permessageDeflateExtensionHeader: ContiguousArray<CChar>
     private var emptyExtension: lws_extension!
+
     private var lwsCCInfo: lws_client_connect_info!
+
     private var context: OpaquePointer!
     private var websocket: OpaquePointer!
 
@@ -150,6 +156,9 @@ public class WebsocketClient {
         self.eventLoop = eventLoop
         self.onConnect = onConnect
 
+        self.permessageDeflateExtensionName = "permessageDeflateExtensionName".utf8CString
+        self.permessageDeflateExtensionHeader = "permessageDeflateExtensionName".utf8CString
+
         // Timeout to prevent leaking promise
         eventLoop.scheduleTask(in: .seconds(2 * Int64(connectionTimeoutSeconds)), {
             if let onConnect = self.onConnect {
@@ -202,11 +211,9 @@ public class WebsocketClient {
         // Extensions
         permessageDeflateExtension = lws_extension()
         lws_extension_zero(&permessageDeflateExtension)
-        let permessageName = "permessage-deflate".utf8CString
-        permessageDeflateExtension.name = permessageName.toCPointer()
+        permessageDeflateExtension.name = permessageDeflateExtensionName.toCPointer()
         permessageDeflateExtension.callback = lws_extension_callback_pm_deflate
-        let permessageHeader = "permessage-deflate; client_max_window_bits".utf8CString
-        permessageDeflateExtension.client_offer = permessageHeader.toCPointer()
+        permessageDeflateExtension.client_offer = permessageDeflateExtensionHeader.toCPointer()
 
         extensionsPointer.pointee = permessageDeflateExtension
 
@@ -271,8 +278,6 @@ public class WebsocketClient {
 
         // Make sure the below variables are retained until function end
         _ = lwsProtocolName.count
-        _ = permessageName.count
-        _ = permessageHeader.count
         _ = lwsCCInfoHost.count
         _ = lwsCCInfoHostHeader.count
         _ = lwsCCInfoPath.count
