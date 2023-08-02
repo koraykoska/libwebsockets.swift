@@ -285,13 +285,14 @@ public class WebsocketClient {
     }
 
     deinit {
+        // TODO: Cannot wait in eventloop. Fix.
         // The below is for rare cases where the connection neither succeeded nor failed yet.
-        try? eventLoop.scheduleTask(in: .zero, {
-            if let onConnect = self.onConnect {
-                onConnect.fail(Error.connectionError(description: "websocket freed (deinit called) before connection succeeded"))
-                self.onConnect = nil
-            }
-        }).futureResult.wait()
+//        try? eventLoop.scheduleTask(in: .zero, {
+//            if let onConnect = self.onConnect {
+//                onConnect.fail(Error.connectionError(description: "websocket freed (deinit called) before connection succeeded"))
+//                self.onConnect = nil
+//            }
+//        }).futureResult.wait()
 
         // Close if not yet closed
         self.close(reason: LWS_CLOSE_STATUS_GOINGAWAY, wait: true)
