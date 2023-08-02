@@ -156,8 +156,8 @@ public class WebsocketClient {
         self.eventLoop = eventLoop
         self.onConnect = onConnect
 
-        self.permessageDeflateExtensionName = "permessageDeflateExtensionName".utf8CString
-        self.permessageDeflateExtensionHeader = "permessageDeflateExtensionName".utf8CString
+        self.permessageDeflateExtensionName = "permessage-deflate".utf8CString
+        self.permessageDeflateExtensionHeader = "permessage-deflate".utf8CString
 
         // Timeout to prevent leaking promise
         eventLoop.scheduleTask(in: .seconds(2 * Int64(connectionTimeoutSeconds)), {
