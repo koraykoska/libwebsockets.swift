@@ -26,9 +26,9 @@ public class WebsocketClient {
             self.weakSelf = weakSelf
         }
     }
-    private let selfPointer: UnsafeMutablePointer<WeakSelf> = UnsafeMutablePointer<WeakSelf>.allocate(capacity: 1)
-    private let protocolsPointer: UnsafeMutablePointer<lws_protocols> = UnsafeMutablePointer<lws_protocols>.allocate(capacity: 2)
-    private let extensionsPointer: UnsafeMutablePointer<lws_extension> = UnsafeMutablePointer<lws_extension>.allocate(capacity: 2)
+    private let selfPointer: UnsafeMutablePointer<WeakSelf>
+    private let protocolsPointer: UnsafeMutablePointer<lws_protocols>
+    private let extensionsPointer: UnsafeMutablePointer<lws_extension>
 
     private var lwsContextCreationInfo: lws_context_creation_info!
 
@@ -158,6 +158,10 @@ public class WebsocketClient {
         self.permessageDeflate = permessageDeflate
         self.eventLoop = eventLoop
         self.onConnect = onConnect
+
+        selfPointer = UnsafeMutablePointer<WeakSelf>.allocate(capacity: 1)
+        protocolsPointer = UnsafeMutablePointer<lws_protocols>.allocate(capacity: 2)
+        extensionsPointer = UnsafeMutablePointer<lws_extension>.allocate(capacity: 2)
 
         self.permessageDeflateExtensionName = "permessage-deflate".utf8CString
         self.permessageDeflateExtensionHeader = "permessage-deflate; client_max_window_bits".utf8CString

@@ -193,7 +193,7 @@ let package = Package(
             pkgConfig: "dbus-1",
             providers: [
                 .brew(["dbus"]),
-                .apt(["dbus"])
+                .apt(["libdbus-1-dev"])
             ]
         ),
         .systemLibrary(name: "CZlib",
@@ -201,6 +201,13 @@ let package = Package(
             providers: [
                 .brew(["zlib", "zlib-devel"]),
                 .apt(["libz-dev"])
+            ]
+        ),
+        .systemLibrary(name: "Csqlite3",
+            pkgConfig: "sqlite3",
+            providers: [
+                .brew(["sqlite3"]),
+                .apt(["libsqlite3-dev"])
             ]
         ),
         .testTarget(
