@@ -1,9 +1,7 @@
 #ifndef lws_custom_h
 #define lws_custom_h
 
-int ws_write_bin(struct lws *wsi, char *bin, size_t len, int is_start, int is_fin);
-
-int ws_write_text(struct lws *wsi, char *string, int is_start, int is_fin);
+int ws_write_bin_text(struct lws *wsi, char *data, size_t len, int is_text, int is_start, int is_fin);
 
 int ws_write_ping(struct lws *wsi);
 

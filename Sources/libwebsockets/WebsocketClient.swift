@@ -376,6 +376,7 @@ public class WebsocketClient {
             // Notify onClose callback
             let onCloseCallback = self.onCloseCallback
             self.eventLoop.execute {
+                // TODO: To prevent retain cycles if user retains websocket in onClose, we can now set the onCloseCallback to nil if self exists?
                 onCloseCallback?.value(reason)
             }
         }
@@ -648,38 +649,25 @@ private func websocketCallback(
         }
         let returnValue: Int32
         switch nextToBeWritten.opcode {
-        case .binary, .continuation:
-            // For continuations, it doesn't matter if we call binary or text
-            // as this will not be included into the websocket message anyways.
+        case .binary, .text, .continuation:
             var data = nextToBeWritten.data
             returnValue = data.withUnsafeMutableBytes { buffer in
                 guard let pointer = buffer.baseAddress else {
                     return -1
                 }
 
-                return ws_write_bin(
+                // For continuations, it doesn't matter if we call binary or text
+                // as this will not be included into the websocket message anyways.
+
+                return ws_write_bin_text(
                     wsi,
                     UnsafeMutablePointer<CChar>(OpaquePointer(pointer)),
                     buffer.count,
+                    (nextToBeWritten.opcode == .text).toCBool(),
                     (nextToBeWritten.opcode != .continuation).toCBool(),
                     nextToBeWritten.fin.toCBool()
                 )
             }
-        case .text:
-            // This will never be a continuation. So send as isStart
-            guard let textString = String(data: nextToBeWritten.data, encoding: .utf8)?.utf8CString else {
-                returnValue = -1
-                break
-            }
-            let text = textString.toCPointer()
-            returnValue = ws_write_text(
-                wsi,
-                UnsafeMutablePointer(mutating: text),
-                true.toCBool(),
-                nextToBeWritten.fin.toCBool()
-            )
-            // Make sure the string is retained until this point
-            _ = textString.count
         case .ping:
             returnValue = ws_write_ping(wsi)
         case .close(let reason):
