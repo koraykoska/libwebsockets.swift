@@ -320,18 +320,19 @@ public class WebsocketClient {
     // MARK: - Helpers
 
     private func scheduleServiceCall() {
-        if isClosedForever {
-            return
-        }
+//        if isClosedForever {
+//            return
+//        }
 
         serviceQueue.async { [weak self] in
-            guard let self, !isClosedForever else {
+            //  !isClosedForever
+            guard let self, let context = self.context else {
                 return
             }
 
             // This lws_service call blocks until the next event1
             // arrives. The 250ms is ignored since the newest version.
-            lws_service(self.context, 250)
+            lws_service(context, 250)
             self.scheduleServiceCall()
         }
     }
