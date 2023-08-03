@@ -37,7 +37,7 @@ let package = Package(
         ),
         .target(
             name: "Clibwebsockets",
-            dependencies: ["COpenSSL", "CDBus", "CZlib"],
+            dependencies: ["COpenSSL", "CDBus", "CZlib", "Csqlite3"],
             exclude: [
                 "include/",
                 "src/tls/tls-jit-trust.c",
