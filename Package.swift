@@ -199,7 +199,7 @@ let package = Package(
         .systemLibrary(name: "CZlib",
             pkgConfig: "zlib",
             providers: [
-                .brew(["zlib-devel"]),
+                // .brew(["zlib-devel"]),
                 .apt(["libz-dev"])
             ]
         ),

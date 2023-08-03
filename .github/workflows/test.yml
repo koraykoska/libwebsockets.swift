@@ -31,7 +31,7 @@ jobs:
         run: sudo apt-get -y update && sudo apt-get -y install libssl-dev libdbus-1-dev libsqlite3-dev
         if: ${{ matrix.os == 'ubuntu-22.04' || matrix.os == 'ubuntu-20.04' }}
       - name: System Dependencies macOS
-        run: brew install openssl dbus zlib-devel sqlite3
+        run: brew install openssl dbus sqlite3
         if: ${{ matrix.os == 'macos-latest' }}
 
       - name: Build Debug
