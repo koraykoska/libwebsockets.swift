@@ -192,7 +192,7 @@ public class WebsocketClient {
         lwsContextCreationInfo.timeout_secs = connectionTimeoutSeconds
 
         // self pointer
-        selfPointer.pointee = .init(weakSelf: self)
+        selfPointer.initialize(to: .init(weakSelf: self))
 
         // Protocols
         lwsProtocols = lws_protocols()
@@ -203,7 +203,7 @@ public class WebsocketClient {
         lwsProtocols.per_session_data_size = 0
         lwsProtocols.rx_buffer_size = maxFrameSize
 
-        protocolsPointer.pointee = lwsProtocols
+        protocolsPointer.initialize(to: lwsProtocols)
 
         lwsEmptyProtocol = lws_protocols()
         lws_protocols_zero(&lwsEmptyProtocol)
@@ -212,7 +212,7 @@ public class WebsocketClient {
         lwsEmptyProtocol.per_session_data_size = 0
         lwsEmptyProtocol.rx_buffer_size = 0
 
-        protocolsPointer.advanced(by: 1).pointee = lwsEmptyProtocol
+        protocolsPointer.advanced(by: 1).initialize(to: lwsEmptyProtocol)
         // END Protocols
 
         // Extensions
@@ -222,7 +222,7 @@ public class WebsocketClient {
         permessageDeflateExtension.callback = lws_extension_callback_pm_deflate
         permessageDeflateExtension.client_offer = permessageDeflateExtensionHeader.toCPointer()
 
-        extensionsPointer.pointee = permessageDeflateExtension
+        extensionsPointer.initialize(to: permessageDeflateExtension)
 
         emptyExtension = lws_extension()
         lws_extension_zero(&emptyExtension)
@@ -230,7 +230,7 @@ public class WebsocketClient {
         emptyExtension.callback = nil
         emptyExtension.client_offer = nil
 
-        extensionsPointer.advanced(by: 1).pointee = emptyExtension
+        extensionsPointer.advanced(by: 1).initialize(to: emptyExtension)
         // END Extensions
 
         lwsContextCreationInfo.protocols = UnsafePointer(protocolsPointer)
