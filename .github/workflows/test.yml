@@ -9,6 +9,10 @@ concurrency:
 jobs:
   # Testing
   test:
+    env:
+      AUTOBAHN_HOST: "127.0.0.1"
+      AUTOBAHN_PORT: "9001"
+
     name: Swift ${{ matrix.swift }} on ${{ matrix.os }}
     strategy:
       matrix:
