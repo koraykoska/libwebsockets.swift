@@ -7,7 +7,6 @@ import NIOPosix
 
 print("Running Echo Client")
 
-/*
 let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
 func createWebsocket() -> WebsocketClient {
     let connectionPromise = eventLoopGroup.next().makePromise(of: Void.self)
@@ -89,8 +88,8 @@ eventLoopGroup.next().scheduleTask(in: .seconds(5), {
         _ = ws.isClosed
     })
 })
-*/
 
+/*
 let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
 
 func updateReports(agent: String) {
@@ -155,7 +154,7 @@ func runCaseNumber(number: Int, upTo: Int, agent: String) {
 
     let fragmentData = NIOLockedValueBox([(Data, Bool, Bool)]())
     websocket.onFragment { websocket, data, isText, isFirst, isFinal in
-        print("Case \(number) incoming \(isText ? "text" : "binary") fragment")
+//        print("Case \(number) incoming \(isText ? "text" : "binary") fragment")
 
         // Text validity
         var canContinue = true
@@ -246,5 +245,6 @@ getCaseCountPromise.futureResult.whenSuccess {
 getCaseCountPromise.futureResult.whenFailure { _ in
     print("getCaseCount failure")
 }
+*/
 
 RunLoop.main.run()

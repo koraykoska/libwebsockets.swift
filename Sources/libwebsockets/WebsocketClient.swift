@@ -715,7 +715,8 @@ private func websocketCallback(
         websocketClient.closeLock.withLock {
             websocketClient.markAsClosed(reason: closeReason)
         }
-        break
+
+        return -1
     case LWS_CALLBACK_CLIENT_CLOSED:
         guard let websocketClient else {
             return -1
