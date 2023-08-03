@@ -212,6 +212,9 @@ let package = Package(
         ),
         .testTarget(
             name: "libwebsocketsTests",
-            dependencies: ["libwebsockets"]),
+            dependencies: [
+                "libwebsockets",
+                .product(name: "NIOPosix", package: "swift-nio"),
+            ]),
     ]
 )
