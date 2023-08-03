@@ -7,6 +7,7 @@ import NIOPosix
 
 print("Running Echo Client")
 
+/*
 let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
 func createWebsocket() -> WebsocketClient {
     let connectionPromise = eventLoopGroup.next().makePromise(of: Void.self)
@@ -88,8 +89,8 @@ eventLoopGroup.next().scheduleTask(in: .seconds(5), {
         _ = ws.isClosed
     })
 })
+*/
 
-/*
 let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
 
 func updateReports(agent: String) {
@@ -154,62 +155,40 @@ func runCaseNumber(number: Int, upTo: Int, agent: String) {
 
     let fragmentData = NIOLockedValueBox([(Data, Bool, Bool)]())
     websocket.onFragment { websocket, data, isText, isFirst, isFinal in
-//        print("Case \(number) incoming \(isText ? "text" : "binary") fragment")
+        // We only need to handle text opcodes and continuations for text as fragments for the autobahn testsuite
+
+        guard isText else {
+            return
+        }
 
         // Text validity
         var canContinue = true
-        if isText {
-            fragmentData.withLockedValue({ $0.append((data, isFirst, isFinal)) })
-            let newData = fragmentData.withLockedValue({ $0.map({ $0.0 }).reduce(Data(), +) })
-            if String(data: newData, encoding: .utf8) == nil {
-                canContinue = false
+        fragmentData.withLockedValue({ $0.append((data, isFirst, isFinal)) })
+        let newData = fragmentData.withLockedValue({ $0.map({ $0.0 }).reduce(Data(), +) })
+        if String(data: newData, encoding: .utf8) == nil {
+            canContinue = false
 
-                if isFinal {
-                    fragmentData.withLockedValue({ $0 = [] })
-                }
+            if isFinal {
+                fragmentData.withLockedValue({ $0 = [] })
             }
         }
 
-        let opcode: WebsocketOpcode
-        if isFirst {
-            opcode = isText ? .text : .binary
-        } else {
-            opcode = .continuation
-        }
-
-        if isText {
-            if canContinue {
-                let fragments = fragmentData.withLockedValue({
-                    let data = $0
-                    $0 = []
-                    return data
-                })
-                if fragments.count > 0 {
-                    let newData = fragments.map({ $0.0 }).reduce(Data(), +)
-                    websocket.send(newData, opcode: fragments[0].1 ? .text : .continuation, fin: fragments[fragments.count - 1].2)
-                }
+        if canContinue {
+            let fragments = fragmentData.withLockedValue({
+                let data = $0
+                $0 = []
+                return data
+            })
+            if fragments.count > 0 {
+                let newData = fragments.map({ $0.0 }).reduce(Data(), +)
+                websocket.send(newData, opcode: fragments[0].1 ? .text : .continuation, fin: fragments[fragments.count - 1].2)
             }
-        } else {
-            websocket.send(data, opcode: opcode, fin: isFinal)
         }
     }
 
-//    websocket.onText { websocket, text in
-//        print("Case \(number) closed with text")
-//        let donePromise = eventLoopGroup.next().makePromise(of: Void.self)
-//        websocket.send(text.data(using: .utf8)!, opcode: .text, promise: donePromise)
-//        donePromise.futureResult.whenSuccess {
-////            websocket.close(reason: LWS_CLOSE_STATUS_NORMAL)
-//        }
-//    }
-//    websocket.onBinary { websocket, data in
-//        print("Case \(number) closed with binary")
-//        let donePromise = eventLoopGroup.next().makePromise(of: Void.self)
-//        websocket.send(data, opcode: .binary, promise: donePromise)
-//        donePromise.futureResult.whenSuccess {
-////            websocket.close(reason: LWS_CLOSE_STATUS_NORMAL)
-//        }
-//    }
+    websocket.onBinary { websocket, data in
+        websocket.send(data, opcode: .binary)
+    }
 }
 
 let getCaseCountPromise = eventLoopGroup.next().makePromise(of: Void.self)
@@ -245,6 +224,5 @@ getCaseCountPromise.futureResult.whenSuccess {
 getCaseCountPromise.futureResult.whenFailure { _ in
     print("getCaseCount failure")
 }
-*/
 
 RunLoop.main.run()
