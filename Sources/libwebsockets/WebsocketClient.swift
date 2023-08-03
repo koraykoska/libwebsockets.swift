@@ -715,8 +715,9 @@ private func websocketCallback(
         websocketClient.closeLock.withLock {
             websocketClient.markAsClosed(reason: closeReason)
         }
-
-        return -1
+        var dataPointer = Array<UInt8>()
+        lws_close_reason(wsi, closeReason, &dataPointer, dataPointer.count)
+        break
     case LWS_CALLBACK_CLIENT_CLOSED:
         guard let websocketClient else {
             return -1
