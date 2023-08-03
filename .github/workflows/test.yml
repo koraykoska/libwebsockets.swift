@@ -25,10 +25,10 @@ jobs:
 
       - name: System Dependencies Ubuntu
         run: apt-get -y update && apt-get -y install libssl-dev libdbus-1-dev libsqlite3-dev
-        if: ${{ matrix.os == "ubuntu-latest" }}
+        if: ${{ matrix.os == 'ubuntu-latest' }}
       - name: System Dependencies macOS
         run: brew install openssl dbus zlib zlib-devel sqlite3
-        if: ${{ matrix.os == "macos-latest" }}
+        if: ${{ matrix.os == 'macos-latest' }}
 
       - name: Build Debug
         run: swift build -c debug
