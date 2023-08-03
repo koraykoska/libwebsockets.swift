@@ -216,7 +216,7 @@ final class AutobahnTestRunner: XCTestCase {
 
     var currentVersion: String!
 
-    func autobahnWithVersion() throws {
+    @objc func autobahnWithVersion() throws {
         let skips = ["2.10", "7.5.1"]
         if skips.contains(currentVersion) {
             return
