@@ -5,8 +5,8 @@
       "kind" : "localSourceControl",
       "location" : "/Users/koray/git/libwebsockets.swift",
       "state" : {
-        "branch" : "main",
-        "revision" : "adbc96118b9dee8cedc3c532f3d238e378289ccc"
+        "branch" : "master",
+        "revision" : "0629dba3f8cb11fff6eb93fb3885956203d32330"
       }
     },
     {
