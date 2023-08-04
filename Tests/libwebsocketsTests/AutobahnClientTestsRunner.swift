@@ -9,7 +9,6 @@ import NIOPosix
 #else
     import Darwin.C
 #endif
-import Crypto
 @testable import libwebsockets
 
 final class AutobahnTestRunner: XCTestCase {
@@ -128,6 +127,8 @@ final class AutobahnTestRunner: XCTestCase {
                 // We only need to handle text opcodes and continuations for text as fragments for the autobahn testsuite
 
                 guard isText else {
+                    websocket.send(data, opcode: isFirst ? .binary : .continuation, fin: isFinal)
+
                     return
                 }
 
@@ -156,13 +157,9 @@ final class AutobahnTestRunner: XCTestCase {
                 }
             }
 
-            websocket.onBinary { websocket, data in
-                var sha = Insecure.SHA1()
-                sha.update(data: data)
-                let hash = sha.finalize().map { String(format: "%02hhx", $0) }.joined()
-                print("Hash of \(number): \(hash)")
-                websocket.send(data, opcode: .binary)
-            }
+//            websocket.onBinary { websocket, data in
+//                websocket.send(data, opcode: .binary)
+//            }
         }
 
         let autobahnDone = ProcessInfo.processInfo.environment["AUTOBAHN_DONE"]
