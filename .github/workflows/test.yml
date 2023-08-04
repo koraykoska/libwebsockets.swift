@@ -33,6 +33,11 @@ jobs:
       - name: System Dependencies macOS
         run: brew install openssl dbus sqlite3
         if: ${{ matrix.os == 'macos-latest' }}
+      - name: Colima aka Docker on macOS
+        run: |
+          brew install colima
+          colima start
+        if: ${{ matrix.os == 'macos-latest' }}
 
       - name: Build Debug
         run: swift build -c debug

@@ -34,14 +34,26 @@ final class AutobahnTestRunner: XCTestCase {
             return
         }
 
-        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 4)
 
         // Make sure print statements reach us
         eventLoopGroup.next().scheduleRepeatedTask(initialDelay: .seconds(5), delay: .seconds(5), { _ in
             fflush(stdout)
         })
 
+        let caseNumbers = NIOLockedValueBox([Int]())
+        let reportsUpdated = NIOLockedValueBox(false)
+
         @Sendable func updateReports(agent: String) {
+            let wasUpdated = reportsUpdated.withLockedValue({
+                let wasUpdated = $0
+                $0 = true
+                return wasUpdated
+            })
+            if wasUpdated {
+                return
+            }
+
             let promise = eventLoopGroup.next().makePromise(of: Void.self)
             let websocket = try! WebsocketClient(
                 scheme: .ws,
@@ -67,10 +79,18 @@ final class AutobahnTestRunner: XCTestCase {
             })
         }
 
-        @Sendable func runCaseNumber(number: Int, upTo: Int, agent: String) {
+        @Sendable func runCaseNumber(eventLoop: EventLoop, agent: String) {
+            guard let number = caseNumbers.withLockedValue({
+                let myNumber = $0.count > 0 ? $0.removeFirst() : nil
+                return myNumber
+            }) else {
+                updateReports(agent: agent)
+                return
+            }
+
             print("Running case number \(number) for agent \(agent)")
 
-            let promise = eventLoopGroup.next().makePromise(of: Void.self)
+            let promise = eventLoop.makePromise(of: Void.self)
             let websocket = try! WebsocketClient(
                 scheme: .ws,
                 host: autobahnHost,
@@ -82,18 +102,15 @@ final class AutobahnTestRunner: XCTestCase {
                 maxFrameSize: 10000,
                 permessageDeflate: true,
                 connectionTimeoutSeconds: 5,
-                eventLoop: eventLoopGroup.next(),
+                eventLoop: eventLoop,
                 onConnect: promise
             )
             @Sendable func runNext() {
-                if number < upTo {
-                    runCaseNumber(number: number + 1, upTo: upTo, agent: agent)
-                } else {
-                    updateReports(agent: agent)
-                }
-
                 // Reset retain
                 websocket.onClose { _ in }
+
+                // Run next
+                runCaseNumber(eventLoop: eventLoop, agent: agent)
             }
             promise.futureResult.whenFailure { error in
                 runNext()
@@ -175,7 +192,14 @@ final class AutobahnTestRunner: XCTestCase {
 
                 // Now run cases
                 print("Running \(caseCount) Autobahn test cases")
-                runCaseNumber(number: 1, upTo: caseCount, agent: AutobahnTestRunner.agent)
+                for i in 1...caseCount {
+                    caseNumbers.withLockedValue({ $0.append(i) })
+                }
+
+                // Launch on all event loops
+                for eventLoop in eventLoopGroup.makeIterator() {
+                    runCaseNumber(eventLoop: eventLoop, agent: AutobahnTestRunner.agent)
+                }
             }
             getCaseCountPromise.futureResult.whenSuccess {
             }
