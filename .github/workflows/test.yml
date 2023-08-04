@@ -53,4 +53,4 @@ jobs:
 
       - name: Upload report on failure
         run: tar -cvf autobahn-libwebsockets-swift.tar autobahn/ && curl --upload-file autobahn-libwebsockets-swift.tar https://transfer.sh/autobahn-libwebsockets-swift.tar
-        if: failure()
+        if: ${{ failure() }}
