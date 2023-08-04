@@ -9,6 +9,7 @@ import NIOPosix
 #else
     import Darwin.C
 #endif
+import CryptoKit
 @testable import libwebsockets
 
 final class AutobahnTestRunner: XCTestCase {
@@ -156,6 +157,10 @@ final class AutobahnTestRunner: XCTestCase {
             }
 
             websocket.onBinary { websocket, data in
+                var sha = Insecure.SHA1()
+                sha.update(data: data)
+                let hash = sha.finalize().map { String(format: "%02hhx", $0) }.joined()
+                print("Hash of \(number): \(hash)")
                 websocket.send(data, opcode: .binary)
             }
         }
