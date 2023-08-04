@@ -9,7 +9,7 @@ import NIOPosix
 #else
     import Darwin.C
 #endif
-import CryptoKit
+import Crypto
 @testable import libwebsockets
 
 final class AutobahnTestRunner: XCTestCase {
@@ -188,7 +188,7 @@ final class AutobahnTestRunner: XCTestCase {
             getCaseCount.onText { websocket, text in
                 // We received the case count
                 let caseCount = Int(text) ?? 0
-                websocket.close(reason: LWS_CLOSE_STATUS_NORMAL)
+                websocket.close(reason: .normal)
 
                 if caseCount <= 0 {
                     print("Case Count too small \(caseCount)")

@@ -68,7 +68,7 @@ func createWebsocket() -> WebsocketClient {
             websocket.send("HELLO!!".data(using: .utf8)!, opcode: .text)
             websocket.send("HELLO!!!".data(using: .utf8)!, opcode: .text)
             websocket.send("HELLO!!!!".data(using: .utf8)!, opcode: .text)
-//            websocket.close(reason: LWS_CLOSE_STATUS_NORMAL)
+//            websocket.close(reason: .normal)
 //            websocket.send("BINHELLO!".data(using: .utf8)!, opcode: .binary)
 //            websocket.send("H".data(using: .utf8)!, opcode: .text, fin: false)
 //            websocket.send("E".data(using: .utf8)!, opcode: .continuation, fin: false)

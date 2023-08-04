@@ -53,8 +53,8 @@ public class WebsocketClient {
 
     /// nil until a close event is received. Do not rely soely on it as connection errors lead to a never initialized close status.
     /// Instead, check `wasConnected` first to make sure a connection has been established before checking this value.
-    fileprivate let lwsCloseStatus: NIOLockedValueBox<lws_close_status?> = .init(nil)
-    fileprivate let waitingLwsCloseStatus: NIOLockedValueBox<lws_close_status?> = .init(nil)
+    fileprivate let lwsCloseStatus: NIOLockedValueBox<WebsocketCloseStatus?> = .init(nil)
+    fileprivate let waitingLwsCloseStatus: NIOLockedValueBox<WebsocketCloseStatus?> = .init(nil)
 
     /// Internally managed buffer of frames. Emitted once the full message is there.
     fileprivate let frameSequence: NIOLockedValueBox<WebsocketFrameSequence?> = .init(nil)
@@ -129,7 +129,7 @@ public class WebsocketClient {
     >?
     fileprivate var onPingCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
     fileprivate var onPongCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
-    fileprivate var onCloseCallback: NIOLoopBoundBox<@Sendable (lws_close_status) -> ()>?
+    fileprivate var onCloseCallback: NIOLoopBoundBox<@Sendable (WebsocketCloseStatus) -> ()>?
 
     // MARK: - Initialization
 
@@ -302,7 +302,7 @@ public class WebsocketClient {
 //        }).futureResult.wait()
 
         // Close if not yet closed
-        self.close(reason: LWS_CLOSE_STATUS_GOINGAWAY, wait: true)
+        self.close(reason: .goingAway, wait: true)
 
         // Destroy context. User nullify necessary to prevent segfault in future callbacks.
         ws_context_user_nullify(context)
@@ -341,7 +341,7 @@ public class WebsocketClient {
         }
     }
 
-    private func close(reason: lws_close_status, wait: Bool) {
+    private func close(reason: WebsocketCloseStatus, wait: Bool) {
         closeLock.withLock {
             if !isClosedForever {
                 //                var closeReasonText = ""
@@ -363,7 +363,7 @@ public class WebsocketClient {
         }
     }
 
-    fileprivate func markAsClosed(reason: lws_close_status) {
+    fileprivate func markAsClosed(reason: WebsocketCloseStatus) {
         if !self.isClosedForever {
             self.lwsCloseStatus.withLockedValue({ $0 = reason })
 
@@ -427,7 +427,7 @@ public class WebsocketClient {
         }
     }
 
-    public func close(reason: lws_close_status) {
+    public func close(reason: WebsocketCloseStatus) {
         self.close(reason: reason, wait: false)
     }
 
@@ -510,7 +510,7 @@ public class WebsocketClient {
         }
     }
 
-    public func onClose(_ callback: @Sendable @escaping (lws_close_status) -> ()) {
+    public func onClose(_ callback: @Sendable @escaping (WebsocketCloseStatus) -> ()) {
         if !self.eventLoop.inEventLoop {
             self.eventLoop.execute {
                 self.onClose(callback)
@@ -595,7 +595,7 @@ private func websocketCallback(
                             websocketClient.onTextCallback?.value(websocketClient, stringMessage)
                         }
                     } else {
-                        websocketClient.close(reason: LWS_CLOSE_STATUS_INVALID_PAYLOAD)
+                        websocketClient.close(reason: .invalidPayload)
                     }
                 }
 
@@ -620,7 +620,7 @@ private func websocketCallback(
                     // TODO: Text callback
                     websocketClient.eventLoop.execute {
                         guard let text = String(data: frameSequence.textBuffer, encoding: .utf8) else {
-                            websocketClient.close(reason: LWS_CLOSE_STATUS_INVALID_PAYLOAD)
+                            websocketClient.close(reason: .invalidPayload)
                             return
                         }
                         websocketClient.onTextCallback?.value(websocketClient, text)
@@ -677,7 +677,7 @@ private func websocketCallback(
         case .close(let reason):
             returnValue = -1
             var dataPointer = Array<UInt8>(nextToBeWritten.data)
-            lws_close_reason(wsi, reason, &dataPointer, nextToBeWritten.data.count)
+            lws_close_reason(wsi, reason.toLwsCloseStatus(), &dataPointer, nextToBeWritten.data.count)
 
             // We don't set to closed yet. Special callback for that.
             websocketClient.waitingLwsCloseStatus.withLockedValue({ $0 = reason })
@@ -706,7 +706,7 @@ private func websocketCallback(
             closeReason = lws_close_status(UInt32(status))
         }
         websocketClient.closeLock.withLock {
-            websocketClient.markAsClosed(reason: closeReason)
+            websocketClient.markAsClosed(reason: WebsocketCloseStatus(fromLwsCloseStatus: closeReason))
         }
         break
     case LWS_CALLBACK_CLIENT_CLOSED:
@@ -718,10 +718,10 @@ private func websocketCallback(
         if closeReason == nil, let inBytes, len >= 2 {
             let bytesRaw = inBytes.bindMemory(to: UInt16.self, capacity: 1)
             let status = UInt16(bigEndian: bytesRaw.pointee)
-            closeReason = lws_close_status(UInt32(status))
+            closeReason = WebsocketCloseStatus(fromLwsCloseStatus: lws_close_status(UInt32(status)))
         }
         websocketClient.closeLock.withLock {
-            websocketClient.markAsClosed(reason: closeReason ?? LWS_CLOSE_STATUS_NO_STATUS)
+            websocketClient.markAsClosed(reason: closeReason ?? .noStatus)
         }
         break
     case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
