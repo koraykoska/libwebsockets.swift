@@ -35,7 +35,7 @@ jobs:
         if: ${{ matrix.os == 'macos-latest' }}
       - name: Colima aka Docker on macOS
         run: |
-          brew install colima
+          brew install colima docker
           colima start
         if: ${{ matrix.os == 'macos-latest' }}
 
