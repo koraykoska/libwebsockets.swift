@@ -34,7 +34,7 @@ final class AutobahnTestRunner: XCTestCase {
             return
         }
 
-        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 4)
+        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
 
         // Make sure print statements reach us
         eventLoopGroup.next().scheduleRepeatedTask(initialDelay: .seconds(5), delay: .seconds(5), { _ in
