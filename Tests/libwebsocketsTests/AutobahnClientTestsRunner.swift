@@ -189,9 +189,7 @@ final class AutobahnTestRunner: XCTestCase {
         print("Semaphore signaled. Autobahn test suite results ready.")
     }
 
-    override class var defaultTestSuite: XCTestSuite {
-        let suite = XCTestSuite(forTestCaseClass: AutobahnTestRunner.self)
-
+    func testAllVersions() throws {
         let reportData = try! Data(contentsOf: URL(fileURLWithPath: "./autobahn/reports/clients/index.json"))
         let report = try! JSONDecoder().decode(AutobahnReport.self, from: reportData)
 
@@ -201,51 +199,50 @@ final class AutobahnTestRunner: XCTestCase {
         }
 
         for (key, _) in agentReport.versionReport {
-            // Generate a test for our specific selector
-            let test = AutobahnTestRunner(selector: #selector(autobahnWithVersion))
-
-            // Each test will take the size argument and use the instance variable in the test
-            test.currentVersion = key
-
-            // Add it to the suite, and the defaults handle the rest
-            suite.addTest(test)
+            let test = AutobahnVersionRunner(name: "Autobahn test case \(key)", currentVersion: key)
+            try test.autobahnWithVersion()
         }
-
-        return suite
     }
 
-    var currentVersion: String!
+    final class AutobahnVersionRunner: XCTestSuite {
+        let currentVersion: String
 
-    @objc func autobahnWithVersion() throws {
-        let skips = ["2.10", "7.5.1"]
-        if skips.contains(currentVersion) {
-            return
+        init(name: String, currentVersion: String) {
+            self.currentVersion = currentVersion
+            super.init(name: name)
         }
 
-        let reportData = try Data(contentsOf: URL(fileURLWithPath: "./autobahn/reports/clients/index.json"))
-        let report = try JSONDecoder().decode(AutobahnReport.self, from: reportData)
+        func autobahnWithVersion() throws {
+            let skips = ["2.10", "7.5.1"]
+            if skips.contains(currentVersion) {
+                return
+            }
 
-        guard let agentReport = report.agentReports[AutobahnTestRunner.agent] else {
-            XCTAssert(false, "test report not set")
-            throw Error.testReportNotGenerated
+            let reportData = try Data(contentsOf: URL(fileURLWithPath: "./autobahn/reports/clients/index.json"))
+            let report = try JSONDecoder().decode(AutobahnReport.self, from: reportData)
+
+            guard let agentReport = report.agentReports[AutobahnTestRunner.agent] else {
+                XCTAssert(false, "test report not set")
+                throw Error.testReportNotGenerated
+            }
+
+            guard let versionReport = agentReport.versionReport[currentVersion] else {
+                XCTAssert(false, "test version not present \(currentVersion)")
+                throw Error.testVersionNotPresent
+            }
+
+            let okCodes = ["OK", "NON-STRICT", "INFORMATIONAL"]
+
+            XCTAssert(
+                okCodes.contains(versionReport.behavior),
+                "Autobahn test \(currentVersion) failed with \(versionReport.behavior)"
+            )
+
+            XCTAssert(
+                okCodes.contains(versionReport.behaviorClose),
+                "Autobahn test \(currentVersion) CLOSE failed with \(versionReport.behaviorClose)"
+            )
         }
-
-        guard let versionReport = agentReport.versionReport[currentVersion] else {
-            XCTAssert(false, "test version not present \(currentVersion!)")
-            throw Error.testVersionNotPresent
-        }
-
-        let okCodes = ["OK", "NON-STRICT", "INFORMATIONAL"]
-
-        XCTAssert(
-            okCodes.contains(versionReport.behavior),
-            "Autobahn test \(currentVersion!) failed with \(versionReport.behavior)"
-        )
-
-        XCTAssert(
-            okCodes.contains(versionReport.behaviorClose),
-            "Autobahn test \(currentVersion!) CLOSE failed with \(versionReport.behaviorClose)"
-        )
     }
 }
 
