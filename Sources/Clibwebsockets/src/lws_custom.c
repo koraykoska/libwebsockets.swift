@@ -18,7 +18,9 @@ void forkify_sha1(const unsigned char *buf, size_t len)
     pipe(pipefd_b);
 
     p = fork();
-    assert(p >= 0);
+    if (p < 0) {
+        return;
+    }
     if(p == 0) {
         /*child*/
         /*setup stdin, stdout*/
@@ -43,10 +45,10 @@ void forkify_sha1(const unsigned char *buf, size_t len)
     /*write to sha1sum*/
     bytes = write(pipefd_b[1], buf, len);
     close(pipefd_b[1]);
-    assert(bytes == len);
+    // assert(bytes == len);
 
     bytes = read(pipefd_a[0], resultbuf, 1024);
-    assert(bytes >= 0);
+    // assert(bytes >= 0);
 
     printf("sha1 wrote (%u bytes): \n%s\n", (unsigned int)bytes, resultbuf);
 }
