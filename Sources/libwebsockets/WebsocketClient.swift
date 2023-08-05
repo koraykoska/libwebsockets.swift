@@ -133,10 +133,26 @@ public class WebsocketClient {
 
     // MARK: - Initialization
 
-    public init(
+    /// Connect to the given Websocket server.
+    /// Resolves with the `WebsocketClient` when the connection succeeds or fails.
+    ///
+    /// - parameter scheme: `.ws` or `.wss`.
+    /// - parameter host: The host to connect to. e.g.: `ws.echoserver.org`
+    /// - parameter port: The port to connect to. Defaults to 443 for wss and 80 otherwise.
+    /// - parameter path: The path section of the ws connect url. e.g.: `/echo`
+    /// - parameter query: The query section of the ws connect url. e.g.: `?someParam=true&otherParam=15`
+    /// - parameter headers: Custom headers to add to the connect request.
+    /// - parameter origin: The origin the request comes from (origin header). Defaults to localhost.
+    /// - parameter maxFrameSize: The maximum size of a single frame of the websocket connection (in bytes).
+    /// - parameter permessageDeflate: Whether to enable compression support. Server still decides to enable or not. Defaults to true.
+    /// - parameter connectionTimeoutSeconds: Seconds to wait before timing out the connection request.
+    /// - parameter eventLoop: The swift-nio EventLoop to run operations and callbacks on.
+    ///
+    /// - returns: The EventLoopFuture of the connected Websocket in form of an instance of `WebsocketClient`.
+    public static func connect(
         scheme: WebsocketScheme = .ws,
         host: String,
-        port: UInt16 = 80,
+        port: UInt16? = nil,
         path: String = "/",
         query: String? = nil,
         headers: [String: String] = [:],
@@ -144,9 +160,87 @@ public class WebsocketClient {
         maxFrameSize: Int,
         permessageDeflate: Bool = true,
         connectionTimeoutSeconds: UInt32 = 10,
+        eventLoop: EventLoop
+    ) -> EventLoopFuture<WebsocketClient> {
+        let connectPromise = eventLoop.makePromise(of: Void.self)
+
+        let parsedPort = port ?? (scheme == .wss ? 443 : 80)
+        let ws = WebsocketClient(
+            scheme: scheme,
+            host: host,
+            port: parsedPort,
+            path: path,
+            query: query,
+            headers: headers,
+            origin: origin,
+            maxFrameSize: maxFrameSize,
+            permessageDeflate: permessageDeflate,
+            connectionTimeoutSeconds: connectionTimeoutSeconds,
+            eventLoop: eventLoop,
+            onConnect: connectPromise
+        )
+
+        return connectPromise.futureResult.map({ return ws })
+    }
+
+    /// Connect to the given Websocket server.
+    /// Returns the `WebsocketClient` when the connection succeeds or throws with the connection error.
+    ///
+    /// - parameter scheme: `.ws` or `.wss`.
+    /// - parameter host: The host to connect to. e.g.: `ws.echoserver.org`
+    /// - parameter port: The port to connect to. Defaults to 443 for wss and 80 otherwise.
+    /// - parameter path: The path section of the ws connect url. e.g.: `/echo`
+    /// - parameter query: The query section of the ws connect url. e.g.: `?someParam=true&otherParam=15`
+    /// - parameter headers: Custom headers to add to the connect request.
+    /// - parameter origin: The origin the request comes from (origin header). Defaults to localhost.
+    /// - parameter maxFrameSize: The maximum size of a single frame of the websocket connection (in bytes).
+    /// - parameter permessageDeflate: Whether to enable compression support. Server still decides to enable or not. Defaults to true.
+    /// - parameter connectionTimeoutSeconds: Seconds to wait before timing out the connection request.
+    /// - parameter eventLoop: The swift-nio EventLoop to run operations and callbacks on.
+    ///
+    /// - returns: The instance of `WebsocketClient`.
+    public static func connect(
+        scheme: WebsocketScheme = .ws,
+        host: String,
+        port: UInt16? = nil,
+        path: String = "/",
+        query: String? = nil,
+        headers: [String: String] = [:],
+        origin: String = "localhost",
+        maxFrameSize: Int,
+        permessageDeflate: Bool = true,
+        connectionTimeoutSeconds: UInt32 = 10,
+        eventLoop: EventLoop
+    ) async throws -> WebsocketClient {
+        return try await WebsocketClient.connect(
+            scheme: scheme,
+            host: host,
+            port: port,
+            path: path,
+            query: query,
+            headers: headers,
+            origin: origin,
+            maxFrameSize: maxFrameSize,
+            permessageDeflate: permessageDeflate,
+            connectionTimeoutSeconds: connectionTimeoutSeconds,
+            eventLoop: eventLoop
+        ).get()
+    }
+
+    private init(
+        scheme: WebsocketScheme = .ws,
+        host: String,
+        port: UInt16,
+        path: String,
+        query: String?,
+        headers: [String: String],
+        origin: String,
+        maxFrameSize: Int,
+        permessageDeflate: Bool,
+        connectionTimeoutSeconds: UInt32,
         eventLoop: EventLoop,
         onConnect: EventLoopPromise<Void>
-    ) throws {
+    ) {
         self.scheme = scheme
         self.host = host
         self.port = port
@@ -250,7 +344,13 @@ public class WebsocketClient {
 
         // Context
         guard let context = lws_create_context(&lwsContextCreationInfo) else {
-            throw Error.contextCreationFailed
+            eventLoop.execute {
+                if let onConnect = self.onConnect {
+                    onConnect.fail(Error.contextCreationFailed)
+                    self.onConnect = nil
+                }
+            }
+            return
         }
         self.context = context
 

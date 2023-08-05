@@ -55,7 +55,7 @@ final class AutobahnTestRunner: XCTestCase {
             }
 
             let promise = eventLoopGroup.next().makePromise(of: Void.self)
-            let websocket = try! WebsocketClient(
+            let websocketPromise = WebsocketClient.connect(
                 scheme: .ws,
                 host: autobahnHost,
                 port: autobahnPortInt,
@@ -66,17 +66,23 @@ final class AutobahnTestRunner: XCTestCase {
                 maxFrameSize: 10000,
                 permessageDeflate: true,
                 connectionTimeoutSeconds: 5,
-                eventLoop: eventLoopGroup.next(),
-                onConnect: promise
+                eventLoop: eventLoopGroup.next()
             )
-            websocket.onClose { _ in
-                print("Agent \(agent) done")
-            }
+            _ = websocketPromise.always { result in
+                switch result {
+                case .success(let websocket):
+                    websocket.onClose { _ in
+                        print("Agent \(agent) done")
+                    }
+                case .failure(let err):
+                    print("Failed connecting to update reports.")
+                }
 
-            // Continue after 10 seconds. Wait for report generation.
-            eventLoopGroup.next().scheduleTask(in: .seconds(10), {
-                semaphore.signal()
-            })
+                // Continue after 10 seconds. Wait for report generation.
+                eventLoopGroup.next().scheduleTask(in: .seconds(10), {
+                    semaphore.signal()
+                })
+            }
         }
 
         @Sendable func runCaseNumber(eventLoop: EventLoop, agent: String) {
@@ -90,8 +96,7 @@ final class AutobahnTestRunner: XCTestCase {
 
             print("Running case number \(number) for agent \(agent)")
 
-            let promise = eventLoop.makePromise(of: Void.self)
-            let websocket = try! WebsocketClient(
+            let websocketPromise = WebsocketClient.connect(
                 scheme: .ws,
                 host: autobahnHost,
                 port: autobahnPortInt,
@@ -102,63 +107,65 @@ final class AutobahnTestRunner: XCTestCase {
                 maxFrameSize: 10000,
                 permessageDeflate: true,
                 connectionTimeoutSeconds: 5,
-                eventLoop: eventLoop,
-                onConnect: promise
+                eventLoop: eventLoop
             )
             @Sendable func runNext() {
-                // Reset retain
-                websocket.onClose { _ in }
-
                 // Run next
                 runCaseNumber(eventLoop: eventLoop, agent: agent)
             }
-            promise.futureResult.whenFailure { error in
+
+            websocketPromise.whenFailure { error in
                 runNext()
             }
-            websocket.onClose { status in
-                runNext()
+            websocketPromise.whenSuccess { websocket in
+                websocket.onClose { status in
+                    // Reset retain
+                    websocket.onClose { _ in }
 
-                // Retain
-                _ = websocket.headers
-            }
+                    runNext()
 
-            let fragmentData = NIOLockedValueBox([(Data, Bool, Bool)]())
-            websocket.onFragment { websocket, data, isText, isFirst, isFinal in
-                // We only need to handle text opcodes and continuations for text as fragments for the autobahn testsuite
-
-                guard isText else {
-//                    websocket.send(data, opcode: isFirst ? .binary : .continuation, fin: isFinal)
-
-                    return
+                    // Retain
+                    _ = websocket.headers
                 }
 
-                // Text validity
-                var canContinue = true
-                fragmentData.withLockedValue({ $0.append((data, isFirst, isFinal)) })
-                let newData = fragmentData.withLockedValue({ $0.map({ $0.0 }).reduce(Data(), +) })
-                if String(data: newData, encoding: .utf8) == nil {
-                    canContinue = false
+                let fragmentData = NIOLockedValueBox([(Data, Bool, Bool)]())
+                websocket.onFragment { websocket, data, isText, isFirst, isFinal in
+                    // We only need to handle text opcodes and continuations for text as fragments for the autobahn testsuite
 
-                    if isFinal {
-                        fragmentData.withLockedValue({ $0 = [] })
+                    guard isText else {
+    //                    websocket.send(data, opcode: isFirst ? .binary : .continuation, fin: isFinal)
+
+                        return
+                    }
+
+                    // Text validity
+                    var canContinue = true
+                    fragmentData.withLockedValue({ $0.append((data, isFirst, isFinal)) })
+                    let newData = fragmentData.withLockedValue({ $0.map({ $0.0 }).reduce(Data(), +) })
+                    if String(data: newData, encoding: .utf8) == nil {
+                        canContinue = false
+
+                        if isFinal {
+                            fragmentData.withLockedValue({ $0 = [] })
+                        }
+                    }
+
+                    if canContinue {
+                        let fragments = fragmentData.withLockedValue({
+                            let data = $0
+                            $0 = []
+                            return data
+                        })
+                        if fragments.count > 0 {
+                            let newData = fragments.map({ $0.0 }).reduce(Data(), +)
+                            websocket.send(newData, opcode: fragments[0].1 ? .text : .continuation, fin: fragments[fragments.count - 1].2)
+                        }
                     }
                 }
 
-                if canContinue {
-                    let fragments = fragmentData.withLockedValue({
-                        let data = $0
-                        $0 = []
-                        return data
-                    })
-                    if fragments.count > 0 {
-                        let newData = fragments.map({ $0.0 }).reduce(Data(), +)
-                        websocket.send(newData, opcode: fragments[0].1 ? .text : .continuation, fin: fragments[fragments.count - 1].2)
-                    }
+                websocket.onBinary { websocket, data in
+                    websocket.send(data, opcode: .binary)
                 }
-            }
-
-            websocket.onBinary { websocket, data in
-                websocket.send(data, opcode: .binary)
             }
         }
 
@@ -167,8 +174,7 @@ final class AutobahnTestRunner: XCTestCase {
             print("Autobahn was already done.")
             semaphore.signal()
         } else {
-            let getCaseCountPromise = eventLoopGroup.next().makePromise(of: Void.self)
-            let getCaseCount = try! WebsocketClient(
+            let getCaseCountPromise = WebsocketClient.connect(
                 scheme: .ws,
                 host: autobahnHost,
                 port: autobahnPortInt,
@@ -179,34 +185,34 @@ final class AutobahnTestRunner: XCTestCase {
                 maxFrameSize: 10000,
                 permessageDeflate: true,
                 connectionTimeoutSeconds: 5,
-                eventLoop: eventLoopGroup.next(),
-                onConnect: getCaseCountPromise
+                eventLoop: eventLoopGroup.next()
             )
-            getCaseCount.onText { websocket, text in
-                // We received the case count
-                let caseCount = Int(text) ?? 0
-                websocket.close(reason: .normal)
-
-                if caseCount <= 0 {
-                    print("Case Count too small \(caseCount)")
-                    return
-                }
-
-                // Now run cases
-                print("Running \(caseCount) Autobahn test cases")
-                for i in 1...caseCount {
-                    caseNumbers.withLockedValue({ $0.append(i) })
-                }
-
-                // Launch on all event loops
-                for eventLoop in eventLoopGroup.makeIterator() {
-                    runCaseNumber(eventLoop: eventLoop, agent: AutobahnTestRunner.agent)
-                }
-            }
-            getCaseCountPromise.futureResult.whenSuccess {
-            }
-            getCaseCountPromise.futureResult.whenFailure { _ in
+            getCaseCountPromise.whenFailure { _ in
                 print("getCaseCount failure")
+            }
+
+            getCaseCountPromise.whenSuccess { getCaseCount in
+                getCaseCount.onText { websocket, text in
+                    // We received the case count
+                    let caseCount = Int(text) ?? 0
+                    websocket.close(reason: .normal)
+
+                    if caseCount <= 0 {
+                        print("Case Count too small \(caseCount)")
+                        return
+                    }
+
+                    // Now run cases
+                    print("Running \(caseCount) Autobahn test cases")
+                    for i in 1...caseCount {
+                        caseNumbers.withLockedValue({ $0.append(i) })
+                    }
+
+                    // Launch on all event loops
+                    for eventLoop in eventLoopGroup.makeIterator() {
+                        runCaseNumber(eventLoop: eventLoop, agent: AutobahnTestRunner.agent)
+                    }
+                }
             }
         }
 
