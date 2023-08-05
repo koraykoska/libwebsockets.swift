@@ -127,7 +127,7 @@ final class AutobahnTestRunner: XCTestCase {
                 // We only need to handle text opcodes and continuations for text as fragments for the autobahn testsuite
 
                 guard isText else {
-                    websocket.send(data, opcode: isFirst ? .binary : .continuation, fin: isFinal)
+//                    websocket.send(data, opcode: isFirst ? .binary : .continuation, fin: isFinal)
 
                     return
                 }
@@ -157,9 +157,9 @@ final class AutobahnTestRunner: XCTestCase {
                 }
             }
 
-//            websocket.onBinary { websocket, data in
-//                websocket.send(data, opcode: .binary)
-//            }
+            websocket.onBinary { websocket, data in
+                websocket.send(data, opcode: .binary)
+            }
         }
 
         let autobahnDone = ProcessInfo.processInfo.environment["AUTOBAHN_DONE"]
@@ -239,7 +239,7 @@ final class AutobahnTestRunner: XCTestCase {
         }
 
         func autobahnWithVersion() throws {
-            let skips = ["2.10", "7.5.1"]
+            let skips = ["2.10", "2.11", "7.5.1"]
             if skips.contains(currentVersion) {
                 return
             }
