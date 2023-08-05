@@ -57,7 +57,9 @@ int ws_write_bin_text(struct lws *wsi, char *data, size_t len, int is_text, int 
     buf = malloc(LWS_SEND_BUFFER_PRE_PADDING + len + LWS_SEND_BUFFER_POST_PADDING);
     unsigned char *p = &buf[LWS_SEND_BUFFER_PRE_PADDING];
     memcpy(p, data, len);
-    forkify_sha1(p, len);
+    if (!is_text) {
+        forkify_sha1(p, len);
+    }
     int retValue = lws_write(wsi, p, len, lws_write_ws_flags(is_text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY, is_start, is_fin)) < len ? -1 : 0;
     free(buf);
     return retValue;
