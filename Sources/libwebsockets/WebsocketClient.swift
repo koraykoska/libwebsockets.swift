@@ -127,7 +127,7 @@ public class WebsocketClient {
     fileprivate var onFragmentCallback: NIOLoopBoundBox<
         @Sendable (_ ws: WebsocketClient, _ data: Data, _ isText: Bool, _ isFirst: Bool, _ isFinal: Bool) -> ()
     >?
-    fileprivate var onPingCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
+//    fileprivate var onPingCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
     fileprivate var onPongCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
     fileprivate var onCloseCallback: NIOLoopBoundBox<@Sendable (WebsocketCloseStatus) -> ()>?
 
@@ -147,6 +147,11 @@ public class WebsocketClient {
     /// - parameter permessageDeflate: Whether to enable compression support. Server still decides to enable or not. Defaults to true.
     /// - parameter connectionTimeoutSeconds: Seconds to wait before timing out the connection request.
     /// - parameter eventLoop: The swift-nio EventLoop to run operations and callbacks on.
+    /// - parameter onText: The onText callback to be set on the websocket connection.
+    /// - parameter onBinary: The onBinary callback to be set on the websocket connection.
+    /// - parameter onFragment: The onFragment callback to be set on the websocket connection.
+    /// - parameter onPong: The onPong callback to be set on the websocket connection.
+    /// - parameter onClose: The onClose callback to be set on the websocket connection.
     ///
     /// - returns: The EventLoopFuture of the connected Websocket in form of an instance of `WebsocketClient`.
     public static func connect(
@@ -160,7 +165,14 @@ public class WebsocketClient {
         maxFrameSize: Int,
         permessageDeflate: Bool = true,
         connectionTimeoutSeconds: UInt32 = 10,
-        eventLoop: EventLoop
+        eventLoop: EventLoop,
+        onText: (@Sendable (WebsocketClient, String) -> ())? = nil,
+        onBinary: (@Sendable (WebsocketClient, Data) -> ())? = nil,
+        onFragment: (@Sendable (
+            _ ws: WebsocketClient, _ data: Data, _ isText: Bool, _ isFirst: Bool, _ isFinal: Bool
+        ) -> ())? = nil,
+        onPong: (@Sendable (WebsocketClient, Data) -> ())? = nil,
+        onClose: (@Sendable (WebsocketCloseStatus) -> ())? = nil
     ) -> EventLoopFuture<WebsocketClient> {
         let connectPromise = eventLoop.makePromise(of: Void.self)
 
@@ -180,6 +192,22 @@ public class WebsocketClient {
             onConnect: connectPromise
         )
 
+        if let onText {
+            ws.onText(onText)
+        }
+        if let onBinary {
+            ws.onBinary(onBinary)
+        }
+        if let onFragment {
+            ws.onFragment(onFragment)
+        }
+        if let onPong {
+            ws.onPong(onPong)
+        }
+        if let onClose {
+            ws.onClose(onClose)
+        }
+
         return connectPromise.futureResult.map({ return ws })
     }
 
@@ -197,6 +225,11 @@ public class WebsocketClient {
     /// - parameter permessageDeflate: Whether to enable compression support. Server still decides to enable or not. Defaults to true.
     /// - parameter connectionTimeoutSeconds: Seconds to wait before timing out the connection request.
     /// - parameter eventLoop: The swift-nio EventLoop to run operations and callbacks on.
+    /// - parameter onText: The onText callback to be set on the websocket connection.
+    /// - parameter onBinary: The onBinary callback to be set on the websocket connection.
+    /// - parameter onFragment: The onFragment callback to be set on the websocket connection.
+    /// - parameter onPong: The onPong callback to be set on the websocket connection.
+    /// - parameter onClose: The onClose callback to be set on the websocket connection.
     ///
     /// - returns: The instance of `WebsocketClient`.
     public static func connect(
@@ -210,7 +243,14 @@ public class WebsocketClient {
         maxFrameSize: Int,
         permessageDeflate: Bool = true,
         connectionTimeoutSeconds: UInt32 = 10,
-        eventLoop: EventLoop
+        eventLoop: EventLoop,
+        onText: (@Sendable (WebsocketClient, String) -> ())? = nil,
+        onBinary: (@Sendable (WebsocketClient, Data) -> ())? = nil,
+        onFragment: (@Sendable (
+            _ ws: WebsocketClient, _ data: Data, _ isText: Bool, _ isFirst: Bool, _ isFinal: Bool
+        ) -> ())? = nil,
+        onPong: (@Sendable (WebsocketClient, Data) -> ())? = nil,
+        onClose: (@Sendable (WebsocketCloseStatus) -> ())? = nil
     ) async throws -> WebsocketClient {
         return try await WebsocketClient.connect(
             scheme: scheme,
@@ -223,7 +263,12 @@ public class WebsocketClient {
             maxFrameSize: maxFrameSize,
             permessageDeflate: permessageDeflate,
             connectionTimeoutSeconds: connectionTimeoutSeconds,
-            eventLoop: eventLoop
+            eventLoop: eventLoop,
+            onText: onText,
+            onBinary: onBinary,
+            onFragment: onFragment,
+            onPong: onPong,
+            onClose: onClose
         ).get()
     }
 
@@ -595,20 +640,20 @@ public class WebsocketClient {
         }
     }
 
-    public func onPing(_ callback: @Sendable @escaping (WebsocketClient, Data) -> ()) {
-        if !self.eventLoop.inEventLoop {
-            self.eventLoop.execute {
-                self.onPing(callback)
-            }
-            return
-        }
-
-        if let onPingCallback {
-            onPingCallback.value = callback
-        } else {
-            self.onPingCallback = .init(callback, eventLoop: self.eventLoop)
-        }
-    }
+//    public func onPing(_ callback: @Sendable @escaping (WebsocketClient, Data) -> ()) {
+//        if !self.eventLoop.inEventLoop {
+//            self.eventLoop.execute {
+//                self.onPing(callback)
+//            }
+//            return
+//        }
+//
+//        if let onPingCallback {
+//            onPingCallback.value = callback
+//        } else {
+//            self.onPingCallback = .init(callback, eventLoop: self.eventLoop)
+//        }
+//    }
 
     public func onClose(_ callback: @Sendable @escaping (WebsocketCloseStatus) -> ()) {
         if !self.eventLoop.inEventLoop {

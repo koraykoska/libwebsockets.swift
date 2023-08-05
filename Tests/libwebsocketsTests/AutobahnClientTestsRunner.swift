@@ -9,6 +9,7 @@ import NIOPosix
 #else
     import Darwin.C
 #endif
+import Crypto
 @testable import libwebsockets
 
 final class AutobahnTestRunner: XCTestCase {
@@ -54,7 +55,6 @@ final class AutobahnTestRunner: XCTestCase {
                 return
             }
 
-            let promise = eventLoopGroup.next().makePromise(of: Void.self)
             let websocketPromise = WebsocketClient.connect(
                 scheme: .ws,
                 host: autobahnHost,
@@ -66,16 +66,17 @@ final class AutobahnTestRunner: XCTestCase {
                 maxFrameSize: 10000,
                 permessageDeflate: true,
                 connectionTimeoutSeconds: 5,
-                eventLoop: eventLoopGroup.next()
+                eventLoop: eventLoopGroup.next(),
+                onClose: { _ in
+                    print("Agent \(agent) done")
+                }
             )
             _ = websocketPromise.always { result in
                 switch result {
-                case .success(let websocket):
-                    websocket.onClose { _ in
-                        print("Agent \(agent) done")
-                    }
+                case .success(_):
+                    break
                 case .failure(let err):
-                    print("Failed connecting to update reports.")
+                    print("Failed connecting to update reports. \(err)")
                 }
 
                 // Continue after 10 seconds. Wait for report generation.
@@ -96,6 +97,13 @@ final class AutobahnTestRunner: XCTestCase {
 
             print("Running case number \(number) for agent \(agent)")
 
+            let fragmentData = NIOLockedValueBox([(Data, Bool, Bool)]())
+
+            @Sendable func runNext() {
+                // Run next
+                runCaseNumber(eventLoop: eventLoop, agent: agent)
+            }
+
             let websocketPromise = WebsocketClient.connect(
                 scheme: .ws,
                 host: autobahnHost,
@@ -107,29 +115,15 @@ final class AutobahnTestRunner: XCTestCase {
                 maxFrameSize: 10000,
                 permessageDeflate: true,
                 connectionTimeoutSeconds: 5,
-                eventLoop: eventLoop
-            )
-            @Sendable func runNext() {
-                // Run next
-                runCaseNumber(eventLoop: eventLoop, agent: agent)
-            }
-
-            websocketPromise.whenFailure { error in
-                runNext()
-            }
-            websocketPromise.whenSuccess { websocket in
-                websocket.onClose { status in
-                    // Reset retain
-                    websocket.onClose { _ in }
-
-                    runNext()
-
-                    // Retain
-                    _ = websocket.headers
-                }
-
-                let fragmentData = NIOLockedValueBox([(Data, Bool, Bool)]())
-                websocket.onFragment { websocket, data, isText, isFirst, isFinal in
+                eventLoop: eventLoop,
+                onBinary: { websocket, data in
+                    var hash = Insecure.SHA1()
+                    hash.update(data: data)
+                    let sha1 = hash.finalize().map { String(format: "%02hhx", $0) }.joined()
+                    print("Now sending Binary message for number \(number). Hash \(sha1)")
+                    websocket.send(data, opcode: .binary)
+                },
+                onFragment: { websocket, data, isText, isFirst, isFinal in
                     // We only need to handle text opcodes and continuations for text as fragments for the autobahn testsuite
 
                     guard isText else {
@@ -161,10 +155,24 @@ final class AutobahnTestRunner: XCTestCase {
                             websocket.send(newData, opcode: fragments[0].1 ? .text : .continuation, fin: fragments[fragments.count - 1].2)
                         }
                     }
+                },
+                onClose: { status in
+                    runNext()
                 }
+            )
 
-                websocket.onBinary { websocket, data in
-                    websocket.send(data, opcode: .binary)
+            websocketPromise.whenFailure { error in
+                runNext()
+            }
+            websocketPromise.whenSuccess { websocket in
+                websocket.onClose { status in
+                    // Reset retain
+                    websocket.onClose { _ in }
+
+                    runNext()
+
+                    // Retain
+                    _ = websocket.headers
                 }
             }
         }
@@ -185,20 +193,15 @@ final class AutobahnTestRunner: XCTestCase {
                 maxFrameSize: 10000,
                 permessageDeflate: true,
                 connectionTimeoutSeconds: 5,
-                eventLoop: eventLoopGroup.next()
-            )
-            getCaseCountPromise.whenFailure { _ in
-                print("getCaseCount failure")
-            }
-
-            getCaseCountPromise.whenSuccess { getCaseCount in
-                getCaseCount.onText { websocket, text in
+                eventLoop: eventLoopGroup.next(),
+                onText: { websocket, text in
                     // We received the case count
                     let caseCount = Int(text) ?? 0
                     websocket.close(reason: .normal)
 
                     if caseCount <= 0 {
                         print("Case Count too small \(caseCount)")
+                        semaphore.signal()
                         return
                     }
 
@@ -213,6 +216,10 @@ final class AutobahnTestRunner: XCTestCase {
                         runCaseNumber(eventLoop: eventLoop, agent: AutobahnTestRunner.agent)
                     }
                 }
+            )
+            getCaseCountPromise.whenFailure { _ in
+                print("getCaseCount failure")
+                semaphore.signal()
             }
         }
 
