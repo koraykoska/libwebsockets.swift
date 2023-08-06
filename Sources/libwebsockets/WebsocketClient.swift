@@ -413,7 +413,7 @@ public class WebsocketClient: WebsocketConnection {
         let lwsCCInfoHost = host.utf8CString
         lwsCCInfo.address = lwsCCInfoHost.toCPointer()
         lwsCCInfo.port = Int32(port)
-        let lwsCCInfoPath = path.utf8CString
+        let lwsCCInfoPath = "\(path)\(query ?? "")".utf8CString
         lwsCCInfo.path = lwsCCInfoPath.toCPointer()
         // TODO: Use query and all other params?
 //        lwsCCInfo.host = lws_canonical_hostname(context)
