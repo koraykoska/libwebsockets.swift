@@ -58,6 +58,7 @@ public class WebsocketClient {
 
     /// Internally managed buffer of frames. Emitted once the full message is there.
     fileprivate let frameSequence: NIOLockedValueBox<WebsocketFrameSequence?> = .init(nil)
+    fileprivate let frameSequenceType: WebsocketFrameSequence.Type
 
     // State variables
 
@@ -281,6 +282,7 @@ public class WebsocketClient {
         headers: [String: String],
         origin: String,
         maxFrameSize: Int,
+        frameSequenceType: WebsocketFrameSequence.Type = WebsocketSimpleAppendFrameSequence.self,
         permessageDeflate: Bool,
         connectionTimeoutSeconds: UInt32,
         eventLoop: EventLoop,
@@ -294,6 +296,7 @@ public class WebsocketClient {
         self.headers = headers
         self.origin = origin
         self.maxFrameSize = maxFrameSize
+        self.frameSequenceType = frameSequenceType
         self.permessageDeflate = permessageDeflate
         self.eventLoop = eventLoop
         self.onConnect = onConnect
@@ -729,12 +732,10 @@ private func websocketCallback(
             if isFirst && isFinal {
                 // We can skip everything below. It's a simple message
                 if isBinary {
-                    // TODO: Binary callback
                     websocketClient.eventLoop.execute {
                         websocketClient.onBinaryCallback?.value(websocketClient, data)
                     }
                 } else {
-                    // TODO: Text callback
                     if let stringMessage = String(data: data, encoding: .utf8) {
                         websocketClient.eventLoop.execute {
                             websocketClient.onTextCallback?.value(websocketClient, stringMessage)
@@ -748,7 +749,7 @@ private func websocketCallback(
                 return
             }
 
-            var frameSequence = currentFrameSequence ?? .init(type: isBinary ? .binary : .text)
+            var frameSequence = currentFrameSequence ?? websocketClient.frameSequenceType.init(type: isBinary ? .binary : .text)
             // Append the frame and update the sequence
             frameSequence.append(data)
             currentFrameSequence = frameSequence
@@ -756,13 +757,11 @@ private func websocketCallback(
             if isFinal {
                 switch frameSequence.type {
                 case .binary:
-                    // TODO: Binary callback
                     websocketClient.eventLoop.execute {
                         websocketClient.onBinaryCallback?.value(websocketClient, frameSequence.binaryBuffer)
                     }
                     break
                 case .text:
-                    // TODO: Text callback
                     websocketClient.eventLoop.execute {
                         guard let text = String(data: frameSequence.textBuffer, encoding: .utf8) else {
                             websocketClient.close(reason: .invalidPayload)
@@ -961,31 +960,4 @@ private func websocketCallback(
     }
 
     return 0
-}
-
-private struct WebsocketFrameSequence: Sendable {
-    var binaryBuffer: Data
-    var textBuffer: Data
-    let type: WebsocketOpcode
-    let lock: NIOLock
-
-    init(type: WebsocketOpcode) {
-        self.binaryBuffer = Data()
-        self.textBuffer = Data()
-        self.type = type
-        self.lock = .init()
-    }
-
-    mutating func append(_ frame: Data) {
-        self.lock.withLockVoid {
-            switch type {
-            case .binary:
-                self.binaryBuffer.append(frame)
-            case .text:
-                self.textBuffer.append(frame)
-            default:
-                break
-            }
-        }
-    }
 }
