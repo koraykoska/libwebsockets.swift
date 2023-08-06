@@ -4,7 +4,7 @@ import NIOCore
 import NIOConcurrencyHelpers
 import Foundation
 
-public class WebsocketClient {
+public class WebsocketClient: WebsocketConnection {
     public enum Error: Swift.Error {
         case contextCreationFailed
         case connectionError(description: String)
@@ -131,6 +131,10 @@ public class WebsocketClient {
 //    fileprivate var onPingCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
     fileprivate var onPongCallback: NIOLoopBoundBox<@Sendable (WebsocketClient, Data) -> ()>?
     fileprivate var onCloseCallback: NIOLoopBoundBox<@Sendable (WebsocketCloseStatus) -> ()>?
+
+    private let _pingInterval: NIOLockedValueBox<TimeAmount?> = .init(nil)
+    private let scheduledPingIntervalTimeoutTask: NIOLockedValueBox<Scheduled<Void>?> = .init(nil)
+    fileprivate let waitingForPong: NIOLockedValueBox<Bool> = .init(false)
 
     // MARK: - Initialization
 
@@ -534,6 +538,35 @@ public class WebsocketClient {
         }
     }
 
+    @Sendable
+    private func pingAndScheduleNextTimeoutTask() {
+        if !self.eventLoop.inEventLoop {
+            self.eventLoop.execute {
+                self.pingAndScheduleNextTimeoutTask()
+            }
+            return
+        }
+
+        guard let pingInterval = pingInterval else {
+            return
+        }
+
+        if waitingForPong.withLockedValue({ $0 }) {
+            self.waitingForPong.withLockedValue { $0 = false }
+            // We never received a pong from our last ping, so the connection has timed out
+            self.close(reason: .abnormalClose)
+        } else {
+            self.waitingForPong.withLockedValue { $0 = true }
+            self.send(Data(), opcode: .ping)
+            self.scheduledPingIntervalTimeoutTask.withLockedValue {
+                $0 = self.eventLoop.scheduleTask(
+                    deadline: .now() + pingInterval,
+                    self.pingAndScheduleNextTimeoutTask
+                )
+            }
+        }
+    }
+
     // MARK: - Public API
 
     public func send(
@@ -577,6 +610,28 @@ public class WebsocketClient {
 
     public func close(reason: WebsocketCloseStatus) {
         self.close(reason: reason, wait: false)
+    }
+
+    public var pingInterval: TimeAmount? {
+        get {
+            return _pingInterval.withLockedValue { $0 }
+        }
+        set {
+            _pingInterval.withLockedValue { $0 = newValue }
+            if newValue != nil {
+                scheduledPingIntervalTimeoutTask.withLockedValue({
+                    $0?.cancel()
+                    waitingForPong.withLockedValue { $0 = false }
+
+                    self.pingAndScheduleNextTimeoutTask()
+                })
+            } else {
+                scheduledPingIntervalTimeoutTask.withLockedValue {
+                    $0?.cancel()
+                    waitingForPong.withLockedValue { $0 = false }
+                }
+            }
+        }
     }
 
     public func onText(_ callback: @Sendable @escaping (WebsocketClient, String) -> ()) {
@@ -883,17 +938,18 @@ private func websocketCallback(
         }
 
         websocketClient.connectionError.withLockedValue({ $0 = true })
-        // TODO: Better Error messages
         websocketClient.eventLoop.execute {
             websocketClient.onConnect?.fail(WebsocketClient.Error.connectionError(description: description))
             websocketClient.onConnect = nil
         }
         break
     case LWS_CALLBACK_CLIENT_RECEIVE_PONG:
-        // TODO: onPong
         guard let websocketClient else {
             return -1
         }
+
+        // Pong received so not waiting anymore
+        websocketClient.waitingForPong.withLockedValue { $0 = false }
 
         var data = Data()
         if let inBytes {
