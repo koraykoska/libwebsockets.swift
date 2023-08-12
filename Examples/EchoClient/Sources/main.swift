@@ -32,7 +32,7 @@ func createWebsocket() -> WebsocketClient {
         query: nil,
         headers: [:],
         origin: "localhost",
-        maxFrameSize: 10000,
+        maxFrameSize: 100,
         permessageDeflate: true,
         connectionTimeoutSeconds: 5,
         eventLoop: eventLoopGroup.next(),
@@ -40,6 +40,9 @@ func createWebsocket() -> WebsocketClient {
     )
     websocket.onClose { reason in
         print("Close \(reason)")
+    }
+    websocket.onFragment { client, data, a, b, c in
+        print("Recv: \(data.count) bytes")
     }
     websocket.onBinary { ws, data in
         print("Received binary")
@@ -64,6 +67,11 @@ func createWebsocket() -> WebsocketClient {
             print(err)
             case .success:
             print("Connection success")
+            var longString = ""
+            for _ in 0..<10 {
+                longString += "\(UUID().uuidString)"
+            }
+            websocket.send(longString.data(using: .utf8)!, opcode: .text)
             websocket.send("HELLO!".data(using: .utf8)!, opcode: .text)
             websocket.send("HELLO!!".data(using: .utf8)!, opcode: .text)
             websocket.send("HELLO!!!".data(using: .utf8)!, opcode: .text)

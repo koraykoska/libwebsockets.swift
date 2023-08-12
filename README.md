@@ -30,6 +30,12 @@ The test suite utilizes the [Autobahn test suite](https://github.com/crossbario/
 and passes all of the (currently) 517 test cases. With the performance tests finishing ~2-3x faster than any
 other Swift Websocket library as of this writing.
 
+## Version
+
+We locked-in libwebsockets version `v4.3.2..<v4.4` for libwebsockets.swift versions `0.1.0..<1.0.0`.
+So we will essentially only apply bug fix releases of libwebsockets within the current major version of
+libwebsockets.swift.
+
 ## Example
 
 The `Examples/` directory has some examples you can use as a base for your project.

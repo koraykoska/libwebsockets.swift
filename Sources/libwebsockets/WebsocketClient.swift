@@ -107,6 +107,7 @@ public class WebsocketClient: WebsocketConnection {
     public let headers: [String: String]
     public let origin: String
     public let maxFrameSize: Int
+    public let maxMessageSize: Int?
     public let permessageDeflate: Bool
     public let eventLoop: EventLoop
 
@@ -141,6 +142,14 @@ public class WebsocketClient: WebsocketConnection {
     /// Connect to the given Websocket server.
     /// Resolves with the `WebsocketClient` when the connection succeeds or fails.
     ///
+    /// Note: `maxFrameSize` does not prevent the other side to send larger frames. It does 2 things:
+    /// 1) If you call `send()` with more bytes than `maxFrameSize`, the message is automatically
+    ///     split into frames of size (at most) `maxFrameSize`.
+    /// 2) If a frame is received that is larger than `maxFrameSize`, the frame is split into frames of size
+    ///     `maxFrameSize` (at most) and delivered individually.
+    ///
+    /// If you want to set a limit on message sizes (to kill the connection if exceeded), set `maxMessageSize`.
+    ///
     /// - parameter scheme: `.ws` or `.wss`.
     /// - parameter host: The host to connect to. e.g.: `ws.echoserver.org`
     /// - parameter port: The port to connect to. Defaults to 443 for wss and 80 otherwise.
@@ -149,6 +158,7 @@ public class WebsocketClient: WebsocketConnection {
     /// - parameter headers: Custom headers to add to the connect request.
     /// - parameter origin: The origin the request comes from (origin header). Defaults to localhost.
     /// - parameter maxFrameSize: The maximum size of a single frame of the websocket connection (in bytes).
+    /// - parameter maxMessageSize: The maximum size of a single message. Kills the connection if a message is received that's larger.
     /// - parameter permessageDeflate: Whether to enable compression support. Server still decides to enable or not. Defaults to true.
     /// - parameter connectionTimeoutSeconds: Seconds to wait before timing out the connection request.
     /// - parameter eventLoop: The swift-nio EventLoop to run operations and callbacks on.
@@ -168,6 +178,7 @@ public class WebsocketClient: WebsocketConnection {
         headers: [String: String] = [:],
         origin: String = "localhost",
         maxFrameSize: Int,
+        maxMessageSize: Int? = nil,
         permessageDeflate: Bool = true,
         connectionTimeoutSeconds: UInt32 = 10,
         eventLoop: EventLoop,
@@ -191,6 +202,7 @@ public class WebsocketClient: WebsocketConnection {
             headers: headers,
             origin: origin,
             maxFrameSize: maxFrameSize,
+            maxMessageSize: maxMessageSize,
             permessageDeflate: permessageDeflate,
             connectionTimeoutSeconds: connectionTimeoutSeconds,
             eventLoop: eventLoop,
@@ -219,6 +231,14 @@ public class WebsocketClient: WebsocketConnection {
     /// Connect to the given Websocket server.
     /// Returns the `WebsocketClient` when the connection succeeds or throws with the connection error.
     ///
+    /// Note: `maxFrameSize` does not prevent the other side to send larger frames. It does 2 things:
+    /// 1) If you call `send()` with more bytes than `maxFrameSize`, the message is automatically
+    ///     split into frames of size (at most) `maxFrameSize`.
+    /// 2) If a frame is received that is larger than `maxFrameSize`, the frame is split into frames of size
+    ///     `maxFrameSize` (at most) and delivered individually.
+    ///
+    /// If you want to set a limit on message sizes (to kill the connection if exceeded), set `maxMessageSize`.
+    ///
     /// - parameter scheme: `.ws` or `.wss`.
     /// - parameter host: The host to connect to. e.g.: `ws.echoserver.org`
     /// - parameter port: The port to connect to. Defaults to 443 for wss and 80 otherwise.
@@ -227,6 +247,7 @@ public class WebsocketClient: WebsocketConnection {
     /// - parameter headers: Custom headers to add to the connect request.
     /// - parameter origin: The origin the request comes from (origin header). Defaults to localhost.
     /// - parameter maxFrameSize: The maximum size of a single frame of the websocket connection (in bytes).
+    /// - parameter maxMessageSize: The maximum size of a single message. Kills the connection if a message is received that's larger.
     /// - parameter permessageDeflate: Whether to enable compression support. Server still decides to enable or not. Defaults to true.
     /// - parameter connectionTimeoutSeconds: Seconds to wait before timing out the connection request.
     /// - parameter eventLoop: The swift-nio EventLoop to run operations and callbacks on.
@@ -246,6 +267,7 @@ public class WebsocketClient: WebsocketConnection {
         headers: [String: String] = [:],
         origin: String = "localhost",
         maxFrameSize: Int,
+        maxMessageSize: Int? = nil,
         permessageDeflate: Bool = true,
         connectionTimeoutSeconds: UInt32 = 10,
         eventLoop: EventLoop,
@@ -266,6 +288,7 @@ public class WebsocketClient: WebsocketConnection {
             headers: headers,
             origin: origin,
             maxFrameSize: maxFrameSize,
+            maxMessageSize: maxMessageSize,
             permessageDeflate: permessageDeflate,
             connectionTimeoutSeconds: connectionTimeoutSeconds,
             eventLoop: eventLoop,
@@ -286,6 +309,7 @@ public class WebsocketClient: WebsocketConnection {
         headers: [String: String],
         origin: String,
         maxFrameSize: Int,
+        maxMessageSize: Int?,
         frameSequenceType: WebsocketFrameSequence.Type = WebsocketSimpleAppendFrameSequence.self,
         permessageDeflate: Bool,
         connectionTimeoutSeconds: UInt32,
@@ -300,6 +324,7 @@ public class WebsocketClient: WebsocketConnection {
         self.headers = headers
         self.origin = origin
         self.maxFrameSize = maxFrameSize
+        self.maxMessageSize = maxMessageSize
         self.frameSequenceType = frameSequenceType
         self.permessageDeflate = permessageDeflate
         self.eventLoop = eventLoop
@@ -786,6 +811,11 @@ private func websocketCallback(
         websocketClient.frameSequence.withLockedValue({ currentFrameSequence in
             if isFirst && isFinal {
                 // We can skip everything below. It's a simple message
+
+                // We don't check max message size here. If user set `maxFrameSize`
+                // greater than `maxMessageSize`, he will have to deal with the consequences.
+                // If not, this case is handled by `rx_buffer_size` in libwebsockets already.
+
                 if isBinary {
                     websocketClient.eventLoop.execute {
                         websocketClient.onBinaryCallback?.value(websocketClient, data)
@@ -807,6 +837,18 @@ private func websocketCallback(
             var frameSequence = currentFrameSequence ?? websocketClient.frameSequenceType.init(type: isBinary ? .binary : .text)
             // Append the frame and update the sequence
             frameSequence.append(data)
+
+            // Check message size
+            let messageSize = isBinary ? frameSequence.binaryBuffer.count : frameSequence.textBuffer.count
+            if let maxMessageSize = websocketClient.maxMessageSize, messageSize > maxMessageSize {
+                // Close connection
+                websocketClient.close(reason: .messageTooLarge)
+                // Reset frame sequence just in case
+                currentFrameSequence = nil
+                return
+            }
+
+            // Set current frame sequence
             currentFrameSequence = frameSequence
 
             if isFinal {
