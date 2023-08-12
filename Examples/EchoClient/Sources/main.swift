@@ -33,6 +33,7 @@ func createWebsocket() -> WebsocketClient {
         headers: [:],
         origin: "localhost",
         maxFrameSize: 100,
+        maxMessageSize: 1000,
         permessageDeflate: true,
         connectionTimeoutSeconds: 5,
         eventLoop: eventLoopGroup.next(),

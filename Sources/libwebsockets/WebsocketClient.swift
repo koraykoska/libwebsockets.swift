@@ -158,6 +158,7 @@ public class WebsocketClient: WebsocketConnection {
     /// - parameter headers: Custom headers to add to the connect request.
     /// - parameter origin: The origin the request comes from (origin header). Defaults to localhost.
     /// - parameter maxFrameSize: The maximum size of a single frame of the websocket connection (in bytes).
+    ///                           Defaults to 3000 as 2x MTU is a good value and 1500 MTU is standard.
     /// - parameter maxMessageSize: The maximum size of a single message. Kills the connection if a message is received that's larger.
     /// - parameter permessageDeflate: Whether to enable compression support. Server still decides to enable or not. Defaults to true.
     /// - parameter connectionTimeoutSeconds: Seconds to wait before timing out the connection request.
@@ -177,7 +178,7 @@ public class WebsocketClient: WebsocketConnection {
         query: String? = nil,
         headers: [String: String] = [:],
         origin: String = "localhost",
-        maxFrameSize: Int,
+        maxFrameSize: Int = 3000,
         maxMessageSize: Int? = nil,
         permessageDeflate: Bool = true,
         connectionTimeoutSeconds: UInt32 = 10,
@@ -247,6 +248,7 @@ public class WebsocketClient: WebsocketConnection {
     /// - parameter headers: Custom headers to add to the connect request.
     /// - parameter origin: The origin the request comes from (origin header). Defaults to localhost.
     /// - parameter maxFrameSize: The maximum size of a single frame of the websocket connection (in bytes).
+    ///                           Defaults to 3000 as 2x MTU is a good value and 1500 MTU is standard.
     /// - parameter maxMessageSize: The maximum size of a single message. Kills the connection if a message is received that's larger.
     /// - parameter permessageDeflate: Whether to enable compression support. Server still decides to enable or not. Defaults to true.
     /// - parameter connectionTimeoutSeconds: Seconds to wait before timing out the connection request.
@@ -266,7 +268,7 @@ public class WebsocketClient: WebsocketConnection {
         query: String? = nil,
         headers: [String: String] = [:],
         origin: String = "localhost",
-        maxFrameSize: Int,
+        maxFrameSize: Int = 3000,
         maxMessageSize: Int? = nil,
         permessageDeflate: Bool = true,
         connectionTimeoutSeconds: UInt32 = 10,

@@ -6,7 +6,7 @@
       "location" : "/Users/koray/git/libwebsockets.swift",
       "state" : {
         "branch" : "master",
-        "revision" : "9c68ae1470809ccda4abbd154e80c054fdc36f7f"
+        "revision" : "003345e045d146c10423ddf7c36cdfc305f55818"
       }
     },
     {
@@ -32,8 +32,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio.git",
       "state" : {
-        "revision" : "a2e487b77f17edbce9a65f2b7415f2f479dc8e48",
-        "version" : "2.57.0"
+        "revision" : "cf281631ff10ec6111f2761052aa81896a83a007",
+        "version" : "2.58.0"
       }
     }
   ],
