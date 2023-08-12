@@ -5,6 +5,12 @@ import PackageDescription
 
 let package = Package(
     name: "EchoClient",
+    platforms: [
+        .macOS(.v10_15),
+        .iOS(.v13),
+        .watchOS(.v6),
+        .tvOS(.v13),
+    ],
     dependencies: [
         .package(url: "../../", branch: "master"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.57.0"),
