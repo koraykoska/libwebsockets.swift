@@ -650,7 +650,13 @@ public class WebsocketClient: WebsocketConnection {
                     $0?.cancel()
                     waitingForPong.withLockedValue { $0 = false }
 
-                    self.pingAndScheduleNextTimeoutTask()
+                    // This should not block as we would be in a deadlock
+                    // in certain cases (if we are in the correct EventLoop).
+                    // Hence we schedule it into the EventLoop to return immediately
+                    // without blocking.
+                    self.eventLoop.execute {
+                        self.pingAndScheduleNextTimeoutTask()
+                    }
                 })
             } else {
                 scheduledPingIntervalTimeoutTask.withLockedValue {
