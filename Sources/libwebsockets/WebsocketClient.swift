@@ -457,7 +457,16 @@ public class WebsocketClient: WebsocketConnection {
         }
 
         // Connect
-        websocket = lws_client_connect_via_info(&lwsCCInfo)
+        guard let websocket = lws_client_connect_via_info(&lwsCCInfo) else {
+            eventLoop.execute {
+                if let onConnect = self.onConnect {
+                    onConnect.fail(Error.connectionError(description: "lws_client_connect_via_info failed"))
+                    self.onConnect = nil
+                }
+            }
+            return
+        }
+        self.websocket = websocket
 
         // Polling of Events, including connection success
         scheduleServiceCall()
