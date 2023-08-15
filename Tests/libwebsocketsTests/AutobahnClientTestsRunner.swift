@@ -23,6 +23,14 @@ final class AutobahnTestRunner: XCTestCase {
     override class func setUp() {
         super.setUp()
 
+//        var rlp = rlimit()
+//        getrlimit(RLIMIT_NOFILE, &rlp)
+//        rlp.rlim_cur = 1048576
+//        setrlimit(RLIMIT_NOFILE, &rlp)
+//        getrlimit(RLIMIT_NOFILE, &rlp)
+//        let s = sysconf(_SC_OPEN_MAX)
+//        print(s)
+
         let semaphore = DispatchSemaphore(value: 0)
 
         // We are running the full Autobahn test suite
