@@ -23,9 +23,13 @@ internal final class WebsocketClientContext {
 
     private let serviceQueue = DispatchQueue(label: "libwebsockets-swift-context-service")
 
+    private let eventLoopExecutionCallbacks: NIOLockedValueBox<[() -> Void]> = .init([])
+    private let fastServiceExecutionCallbacks: NIOLockedValueBox<[() -> Void]> = .init([])
+
     private var lwsContextCreationInfo: lws_context_creation_info!
 
     internal private(set) var lwsProtocols: lws_protocols!
+    private let lwsProtocolName: ContiguousArray<CChar>
     private var lwsEmptyProtocol: lws_protocols!
 
     private var permessageDeflateExtension: lws_extension!
@@ -45,6 +49,7 @@ internal final class WebsocketClientContext {
         extensionsPointer = UnsafeMutablePointer<lws_extension>.allocate(capacity: 2)
         permessageDeflateExtensionName = "permessage-deflate".utf8CString
         permessageDeflateExtensionHeader = "permessage-deflate; client_max_window_bits".utf8CString
+        lwsProtocolName = "libwebsockets-protocol".utf8CString
 
         // Context Creation Info
         lwsContextCreationInfo = lws_context_creation_info()
@@ -57,12 +62,11 @@ internal final class WebsocketClientContext {
         // Protocols
         lwsProtocols = lws_protocols()
         lws_protocols_zero(&lwsProtocols)
-        let lwsProtocolName = "libwebsockets-protocol".utf8CString
         lwsProtocols.name = lwsProtocolName.toCPointer()
         lwsProtocols.callback = _lws_swift_websocketClientCallback
         lwsProtocols.per_session_data_size = 0
         // TODO: Per instance customization?
-        lwsProtocols.rx_buffer_size = 3000
+        lwsProtocols.rx_buffer_size = 300000
 
         protocolsPointer.initialize(to: lwsProtocols)
 
@@ -104,17 +108,22 @@ internal final class WebsocketClientContext {
 
         // END Context Creation Info
 
-        // Context
-        guard let context = lws_create_context(&lwsContextCreationInfo) else {
+        let retValue = serviceQueue.sync { () -> String? in
+            // Context
+            guard let context = lws_create_context(&lwsContextCreationInfo) else {
+                return nil
+            }
+            self.context = context
+
+            return ""
+        }
+
+        if retValue == nil {
             return nil
         }
-        self.context = context
 
         // Polling of Events, including connection success
         scheduleServiceCall()
-
-        // Make sure the below variables are retained until function end
-        _ = lwsProtocolName.count
     }
 
     deinit {
@@ -141,7 +150,44 @@ internal final class WebsocketClientContext {
             // This lws_service call blocks until the next event1
             // arrives. The 250ms is ignored since the newest version.
             lws_service(context, 250)
+
+            while let callback = fastServiceExecutionCallbacks.withLockedValue({
+                let next = $0.count > 0 ? $0.removeFirst() : nil
+                return next
+            }) {
+                callback()
+            }
+
             self.scheduleServiceCall()
         }
+    }
+
+    private func forceCancelService() {
+        lws_cancel_service(context)
+    }
+
+    // MARK: - API
+
+    func callWritable(wsi: OpaquePointer!) {
+        scheduleEventLoopExecution {
+            lws_callback_on_writable(wsi)
+        }
+    }
+
+    func scheduleFastServiceExecution(_ callback: @escaping () -> Void) {
+        fastServiceExecutionCallbacks.withLockedValue({ $0.append(callback) })
+        forceCancelService()
+    }
+
+    func scheduleEventLoopExecution(_ callback: @escaping () -> Void) {
+        eventLoopExecutionCallbacks.withLockedValue({ $0.append(callback) })
+        forceCancelService()
+    }
+
+    func popEventLoopExecution() -> (() -> Void)? {
+        return eventLoopExecutionCallbacks.withLockedValue({
+            let nextElement = $0.count > 0 ? $0.removeFirst() : nil
+            return nextElement
+        })
     }
 }

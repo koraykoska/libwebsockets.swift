@@ -27,10 +27,9 @@ final class AutobahnTestRunner: XCTestCase {
 
         // We are running the full Autobahn test suite
 
-        guard let autobahnHost = ProcessInfo.processInfo.environment["AUTOBAHN_HOST"],
-              let autobahnPort = ProcessInfo.processInfo.environment["AUTOBAHN_PORT"],
-              let autobahnPortInt = UInt16(autobahnPort)
-        else {
+        let autobahnHost = ProcessInfo.processInfo.environment["AUTOBAHN_HOST"] ?? "127.0.0.1"
+        let autobahnPort = ProcessInfo.processInfo.environment["AUTOBAHN_PORT"] ?? "9001"
+        guard let autobahnPortInt = UInt16(autobahnPort) else {
             return
         }
 

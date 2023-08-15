@@ -370,28 +370,28 @@ public class WebsocketClient: WebsocketConnection {
             break
         }
 
-        // Connect
-        guard let websocket = lws_client_connect_via_info(&lwsCCInfo) else {
-            eventLoop.execute {
-                if let onConnect = self.onConnect {
-                    onConnect.fail(Error.connectionError(description: "lws_client_connect_via_info failed"))
-                    self.onConnect = nil
-                }
-            }
-            return
-        }
-
         // Set a pointer back to self for communication from thr callback to the instance.
-        lws_set_wsi_user(websocket, UnsafeMutableRawPointer(selfPointer))
+        lwsCCInfo.opaque_user_data = UnsafeMutableRawPointer(selfPointer)
 
-        // Set websocket
-        self.websocket = websocket
+        // Connect
+        websocketClientContext.scheduleEventLoopExecution {
+            guard let websocket = lws_client_connect_via_info(&self.lwsCCInfo) else {
+                eventLoop.execute {
+                    if let onConnect = self.onConnect {
+                        onConnect.fail(Error.connectionError(description: "lws_client_connect_via_info failed"))
+                        self.onConnect = nil
+                    }
+                }
+                return
+            }
+            self.websocket = websocket
 
-        // Make sure the below variables are retained until function end
-        _ = lwsCCInfoHost.count
-        _ = lwsCCInfoHostHeader.count
-        _ = lwsCCInfoPath.count
-        _ = lwsCCInfoOrigin.count
+            // Make sure the below variables are retained until function end
+            _ = lwsCCInfoHost.count
+            _ = lwsCCInfoHostHeader.count
+            _ = lwsCCInfoPath.count
+            _ = lwsCCInfoOrigin.count
+        }
     }
 
     deinit {
@@ -408,7 +408,11 @@ public class WebsocketClient: WebsocketConnection {
         self.close(reason: .goingAway, wait: true)
 
         // Make sure callbacks don't crash after deinit
-        lws_set_wsi_user(websocket, nil)
+        if let websocket {
+            WebsocketClientContext.shared()?.scheduleFastServiceExecution {
+                lws_set_opaque_user_data(websocket, nil)
+            }
+        }
 
         // Make sure to free this only after the websocket is destroyed
         // Otherwise we might receive a callback, try to use this pointer
@@ -431,7 +435,11 @@ public class WebsocketClient: WebsocketConnection {
 
                 if wait {
                     // Fast kill for deinit
-                    lws_set_timeout(websocket, PENDING_TIMEOUT_CLOSE_SEND, LWS_TO_KILL_SYNC)
+                    if let websocket {
+                        WebsocketClientContext.shared()?.scheduleFastServiceExecution {
+                            lws_set_timeout(websocket, PENDING_TIMEOUT_CLOSE_SEND, LWS_TO_KILL_SYNC)
+                        }
+                    }
 
                     self.markAsClosed(reason: reason)
                 } else {
@@ -530,7 +538,7 @@ public class WebsocketClient: WebsocketConnection {
             })
 
             // Make sure to ask for the write callback to execute
-            lws_callback_on_writable(websocket)
+            WebsocketClientContext.shared()?.callWritable(wsi: websocket)
         }
     }
 
@@ -672,7 +680,7 @@ internal func _lws_swift_websocketClientCallback(
         guard let wsi else {
             return nil
         }
-        guard let wsiUser = lws_wsi_user(wsi) else {
+        guard let wsiUser = lws_get_opaque_user_data(wsi) else {
             return nil
         }
         let websocketClient = wsiUser.assumingMemoryBound(to: WebsocketClient.WeakSelf.self).pointee
@@ -701,8 +709,9 @@ internal func _lws_swift_websocketClientCallback(
             // We don't really care. No bytes received means we don't do anything.
             break
         }
-        let typedPointer = inBytes.bindMemory(to: UInt8.self, capacity: len)
-        let data = Data(Array(UnsafeMutableBufferPointer(start: typedPointer, count: len)))
+//        let typedPointer = inBytes.bindMemory(to: UInt8.self, capacity: len)
+//        let data = Data(Array(UnsafeMutableBufferPointer(start: typedPointer, count: len)))
+        let data = Data(bytes: inBytes, count: len)
 
         let isFirst = lws_is_first_fragment(wsi).fromCBool()
         let isFinal = lws_is_final_fragment(wsi).fromCBool()
@@ -875,9 +884,8 @@ internal func _lws_swift_websocketClientCallback(
         }
 
         var description = ""
-        if let inBytes {
-            let typedPointer = inBytes.bindMemory(to: UInt8.self, capacity: len)
-            let data = Data(Array(UnsafeMutableBufferPointer(start: typedPointer, count: len)))
+        if let inBytes, len > 0 {
+            let data = Data(bytes: inBytes, count: len)
             if let str = String(data: data, encoding: .utf8) {
                 description = str
             }
@@ -898,9 +906,8 @@ internal func _lws_swift_websocketClientCallback(
         websocketClient.waitingForPong.withLockedValue { $0 = false }
 
         var data = Data()
-        if let inBytes {
-            let typedPointer = inBytes.bindMemory(to: UInt8.self, capacity: len)
-            data = Data(Array(UnsafeMutableBufferPointer(start: typedPointer, count: len)))
+        if let inBytes, len > 0 {
+            data = Data(bytes: inBytes, count: len)
         }
 
         websocketClient.eventLoop.execute {
@@ -943,6 +950,11 @@ internal func _lws_swift_websocketClientCallback(
     case LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED:
         break
     case LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH:
+        break
+    case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+        while let callback = WebsocketClientContext.shared()?.popEventLoopExecution() {
+            callback()
+        }
         break
     default:
         break
