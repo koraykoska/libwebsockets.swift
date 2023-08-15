@@ -16,7 +16,7 @@ public class WebsocketClient: WebsocketConnection {
     // MARK: - Properties
 
     // Queue for running websocket event polling
-    private let serviceQueue = DispatchQueue(label: "websocket-service")
+    // private let serviceQueue = DispatchQueue(label: "websocket-service")
 
     // See: https://stackoverflow.com/questions/61236195/create-a-weak-unsafemutablerawpointer?rq=3
     fileprivate class WeakSelf {
@@ -27,22 +27,9 @@ public class WebsocketClient: WebsocketConnection {
         }
     }
     private let selfPointer: UnsafeMutablePointer<WeakSelf>
-    private let protocolsPointer: UnsafeMutablePointer<lws_protocols>
-    private let extensionsPointer: UnsafeMutablePointer<lws_extension>
-
-    private var lwsContextCreationInfo: lws_context_creation_info!
-
-    private var lwsProtocols: lws_protocols!
-    private var lwsEmptyProtocol: lws_protocols!
-
-    private var permessageDeflateExtension: lws_extension!
-    private let permessageDeflateExtensionName: ContiguousArray<CChar>
-    private let permessageDeflateExtensionHeader: ContiguousArray<CChar>
-    private var emptyExtension: lws_extension!
 
     private var lwsCCInfo: lws_client_connect_info!
 
-    private var context: OpaquePointer!
     private var websocket: OpaquePointer!
 
     /// Whether the websocket was ever connected to the server. True once it connected, even if eventually disconnected.
@@ -333,11 +320,6 @@ public class WebsocketClient: WebsocketConnection {
         self.onConnect = onConnect
 
         selfPointer = UnsafeMutablePointer<WeakSelf>.allocate(capacity: 1)
-        protocolsPointer = UnsafeMutablePointer<lws_protocols>.allocate(capacity: 2)
-        extensionsPointer = UnsafeMutablePointer<lws_extension>.allocate(capacity: 2)
-
-        self.permessageDeflateExtensionName = "permessage-deflate".utf8CString
-        self.permessageDeflateExtensionHeader = "permessage-deflate; client_max_window_bits".utf8CString
 
         // Timeout to prevent leaking promise
         eventLoop.scheduleTask(in: .seconds(2 * Int64(connectionTimeoutSeconds)), {
@@ -349,80 +331,7 @@ public class WebsocketClient: WebsocketConnection {
 
         // lws things below
 
-//        lws_set_log_level(1151, nil)
-        lws_set_log_level(0, nil)
-
-        // Context Creation Info
-        lwsContextCreationInfo = lws_context_creation_info()
-        lws_context_creation_info_zero(&lwsContextCreationInfo)
-        lwsContextCreationInfo.port = CONTEXT_PORT_NO_LISTEN
-        switch scheme {
-        case .wss:
-            lwsContextCreationInfo.options = UInt64(LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)
-        case .ws:
-            break
-        }
-        lwsContextCreationInfo.timeout_secs = connectionTimeoutSeconds
-
-        // self pointer
-        selfPointer.initialize(to: .init(weakSelf: self))
-
-        // Protocols
-        lwsProtocols = lws_protocols()
-        lws_protocols_zero(&lwsProtocols)
-        let lwsProtocolName = "libwebsockets-protocol".utf8CString
-        lwsProtocols.name = lwsProtocolName.toCPointer()
-        lwsProtocols.callback = websocketCallback
-        lwsProtocols.per_session_data_size = 0
-        lwsProtocols.rx_buffer_size = maxFrameSize
-
-        protocolsPointer.initialize(to: lwsProtocols)
-
-        lwsEmptyProtocol = lws_protocols()
-        lws_protocols_zero(&lwsEmptyProtocol)
-        lwsEmptyProtocol.name = nil
-        lwsEmptyProtocol.callback = nil
-        lwsEmptyProtocol.per_session_data_size = 0
-        lwsEmptyProtocol.rx_buffer_size = 0
-
-        protocolsPointer.advanced(by: 1).initialize(to: lwsEmptyProtocol)
-        // END Protocols
-
-        // Extensions
-        permessageDeflateExtension = lws_extension()
-        lws_extension_zero(&permessageDeflateExtension)
-        permessageDeflateExtension.name = permessageDeflateExtensionName.toCPointer()
-        permessageDeflateExtension.callback = lws_extension_callback_pm_deflate
-        permessageDeflateExtension.client_offer = permessageDeflateExtensionHeader.toCPointer()
-
-        extensionsPointer.initialize(to: permessageDeflateExtension)
-
-        emptyExtension = lws_extension()
-        lws_extension_zero(&emptyExtension)
-        emptyExtension.name = nil
-        emptyExtension.callback = nil
-        emptyExtension.client_offer = nil
-
-        extensionsPointer.advanced(by: 1).initialize(to: emptyExtension)
-        // END Extensions
-
-        lwsContextCreationInfo.protocols = UnsafePointer(protocolsPointer)
-        if permessageDeflate {
-            lwsContextCreationInfo.extensions = UnsafePointer(extensionsPointer)
-        }
-        // Below sets guid and uid to -1. Swift doesn't detect signed int correctly. No idea why.
-        ws_set_guiduid(&lwsContextCreationInfo)
-        // We did the below before but it was not always correct due to different int sizes.
-//        lwsContextCreationInfo.gid = 0xffffffff
-//        lwsContextCreationInfo.uid = 0xffffffff
-
-        // Set a pointer back to self for communication from thr callback to the instance.
-        lwsContextCreationInfo.user = UnsafeMutableRawPointer(selfPointer)
-
-        // END Context Creation Info
-
-        // Context
-        guard let context = lws_create_context(&lwsContextCreationInfo) else {
+        guard let websocketClientContext = WebsocketClientContext.shared() else {
             eventLoop.execute {
                 if let onConnect = self.onConnect {
                     onConnect.fail(Error.contextCreationFailed)
@@ -431,12 +340,17 @@ public class WebsocketClient: WebsocketConnection {
             }
             return
         }
-        self.context = context
+
+//        lws_set_log_level(1151, nil)
+        lws_set_log_level(0, nil)
+
+        // self pointer
+        selfPointer.initialize(to: .init(weakSelf: self))
 
         // Client Connect Info
         lwsCCInfo = lws_client_connect_info()
         lws_client_connect_info_zero(&lwsCCInfo)
-        lwsCCInfo.context = context
+        lwsCCInfo.context = websocketClientContext.context
         let lwsCCInfoHost = host.utf8CString
         lwsCCInfo.address = lwsCCInfoHost.toCPointer()
         lwsCCInfo.port = Int32(port)
@@ -448,7 +362,7 @@ public class WebsocketClient: WebsocketConnection {
         lwsCCInfo.host = lwsCCInfoHostHeader.toCPointer()
         let lwsCCInfoOrigin = origin.utf8CString
         lwsCCInfo.origin = lwsCCInfoOrigin.toCPointer()
-        lwsCCInfo.protocol = lwsProtocols.name
+        lwsCCInfo.protocol = websocketClientContext.lwsProtocols.name
         switch scheme {
         case .wss:
             ws_set_ssl_connection(&lwsCCInfo)
@@ -466,13 +380,14 @@ public class WebsocketClient: WebsocketConnection {
             }
             return
         }
+
+        // Set a pointer back to self for communication from thr callback to the instance.
+        lws_set_wsi_user(websocket, UnsafeMutableRawPointer(selfPointer))
+
+        // Set websocket
         self.websocket = websocket
 
-        // Polling of Events, including connection success
-        scheduleServiceCall()
-
         // Make sure the below variables are retained until function end
-        _ = lwsProtocolName.count
         _ = lwsCCInfoHost.count
         _ = lwsCCInfoHostHeader.count
         _ = lwsCCInfoPath.count
@@ -492,15 +407,8 @@ public class WebsocketClient: WebsocketConnection {
         // Close if not yet closed
         self.close(reason: .goingAway, wait: true)
 
-        // Destroy context. User nullify necessary to prevent segfault in future callbacks.
-        ws_context_user_nullify(context)
-        lws_context_destroy(context)
-
-        protocolsPointer.deinitialize(count: 2)
-        protocolsPointer.deallocate()
-
-        extensionsPointer.deinitialize(count: 2)
-        extensionsPointer.deallocate()
+        // Make sure callbacks don't crash after deinit
+        lws_set_wsi_user(websocket, nil)
 
         // Make sure to free this only after the websocket is destroyed
         // Otherwise we might receive a callback, try to use this pointer
@@ -510,24 +418,6 @@ public class WebsocketClient: WebsocketConnection {
     }
 
     // MARK: - Helpers
-
-    private func scheduleServiceCall() {
-//        if isClosedForever {
-//            return
-//        }
-
-        serviceQueue.async { [weak self] in
-            //  !isClosedForever
-            guard let self, let context = self.context else {
-                return
-            }
-
-            // This lws_service call blocks until the next event1
-            // arrives. The 250ms is ignored since the newest version.
-            lws_service(context, 250)
-            self.scheduleServiceCall()
-        }
-    }
 
     private func close(reason: WebsocketCloseStatus, wait: Bool) {
         closeLock.withLock {
@@ -771,7 +661,7 @@ public class WebsocketClient: WebsocketConnection {
     }
 }
 
-private func websocketCallback(
+internal func _lws_swift_websocketClientCallback(
     wsi: OpaquePointer?,
     reason: lws_callback_reasons,
     user: UnsafeMutableRawPointer?,
@@ -782,13 +672,10 @@ private func websocketCallback(
         guard let wsi else {
             return nil
         }
-        guard let context = lws_get_context(wsi) else {
+        guard let wsiUser = lws_wsi_user(wsi) else {
             return nil
         }
-        guard let contextUser = lws_context_user(context) else {
-            return nil
-        }
-        let websocketClient = contextUser.assumingMemoryBound(to: WebsocketClient.WeakSelf.self).pointee
+        let websocketClient = wsiUser.assumingMemoryBound(to: WebsocketClient.WeakSelf.self).pointee
 
         return websocketClient.weakSelf
     }
