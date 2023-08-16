@@ -123,13 +123,13 @@ final class AutobahnTestRunner: XCTestCase {
                 connectionTimeoutSeconds: 5,
                 eventLoop: eventLoop,
                 onBinary: { websocket, data in
-                    websocket.send(data, opcode: .binary)
+//                    websocket.send(data, opcode: .binary)
                 },
                 onFragment: { websocket, data, isText, isFirst, isFinal in
                     // We only need to handle text opcodes and continuations for text as fragments for the autobahn testsuite
 
                     guard isText else {
-    //                    websocket.send(data, opcode: isFirst ? .binary : .continuation, fin: isFinal)
+                        websocket.send(data, opcode: isFirst ? .binary : .continuation, fin: isFinal)
 
                         return
                     }
