@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04, macos-latest]
+        os: [ubuntu-20.04, ubuntu-22.04, macos-13]
         swift: ["5.7", "5.8"]
     runs-on: ${{ matrix.os }}
 
@@ -34,12 +34,12 @@ jobs:
         if: ${{ matrix.os == 'ubuntu-22.04' || matrix.os == 'ubuntu-20.04' }}
       - name: System Dependencies macOS
         run: brew install openssl dbus sqlite3
-        if: ${{ matrix.os == 'macos-latest' }}
+        if: ${{ matrix.os == 'macos-13' }}
       - name: Colima aka Docker on macOS
         run: |
           brew install colima docker
           colima start --cpu 2 --memory 7 --mount-type virtiofs --vm-type vz
-        if: ${{ matrix.os == 'macos-latest' }}
+        if: ${{ matrix.os == 'macos-13' }}
 
       - name: Build Debug
         run: swift build -c debug
