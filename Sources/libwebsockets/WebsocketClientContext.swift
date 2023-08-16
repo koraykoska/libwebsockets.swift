@@ -183,7 +183,7 @@ internal final class WebsocketClientContext {
     // MARK: - API
 
     func callWritable(wsi: OpaquePointer!) {
-        writableQueue.async {
+        _ = writableQueue.sync {
             lws_callback_on_writable(wsi)
         }
     }
