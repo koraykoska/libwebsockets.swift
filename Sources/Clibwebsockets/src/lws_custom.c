@@ -65,3 +65,8 @@ void ws_context_user_nullify(struct lws_context *context)
 {
     context->user_space = NULL;
 }
+
+unsigned int ws_max_fds_context(struct lws_context *context)
+{
+    return context->max_fds;
+}

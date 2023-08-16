@@ -18,4 +18,6 @@ void ws_set_ssl_connection(struct lws_client_connect_info *clientInfo);
 
 void ws_context_user_nullify(struct lws_context *context);
 
+unsigned int ws_max_fds_context(struct lws_context *context);
+
 #endif /* lws_custom_h */

@@ -30,7 +30,7 @@ public class WebsocketClient: WebsocketConnection {
 
     private var lwsCCInfo: lws_client_connect_info!
 
-    private var websocket: OpaquePointer!
+    fileprivate var websocket: NIOLockedValueBox<OpaquePointer?> = .init(nil)
 
     /// Whether the websocket was ever connected to the server. True once it connected, even if eventually disconnected.
     fileprivate let wasConnected: NIOLockedValueBox<Bool> = .init(false)
@@ -52,7 +52,7 @@ public class WebsocketClient: WebsocketConnection {
     /// Returns true if the underlying websocket connection is closed.
     /// Either because it isn't open yet or because the connection was closed.
     public var isClosed: Bool {
-        if websocket == nil {
+        if websocket.withLockedValue({ $0 == nil }) {
             return true
         }
 
@@ -99,7 +99,17 @@ public class WebsocketClient: WebsocketConnection {
     public let eventLoop: EventLoop
 
     // Needs to be emptied after usage to not create a retain cycle
-    fileprivate var onConnect: EventLoopPromise<Void>?
+    fileprivate var onConnect: NIOLockedValueBox<EventLoopPromise<Void>?>
+    fileprivate var fetchOnConnect: EventLoopPromise<Void>? {
+        return onConnect.withLockedValue({
+            if let promise = $0 {
+                $0 = nil
+                return promise
+            }
+
+            return nil
+        })
+    }
 
     // Writable to the websocket
     fileprivate let toBeWritten: NIOLockedValueBox<Array<(
@@ -317,32 +327,30 @@ public class WebsocketClient: WebsocketConnection {
         self.frameSequenceType = frameSequenceType
         self.permessageDeflate = permessageDeflate
         self.eventLoop = eventLoop
-        self.onConnect = onConnect
+        self.onConnect = .init(onConnect)
 
         selfPointer = UnsafeMutablePointer<WeakSelf>.allocate(capacity: 1)
 
         // Timeout to prevent leaking promise
         eventLoop.scheduleTask(in: .seconds(2 * Int64(connectionTimeoutSeconds)), {
-            if let onConnect = self.onConnect {
+            if let onConnect = self.fetchOnConnect {
                 onConnect.fail(Error.connectionError(description: "timeout"))
-                self.onConnect = nil
             }
         })
 
         // lws things below
 
+        //        lws_set_log_level(1151, nil)
+        lws_set_log_level(0, nil)
+
         guard let websocketClientContext = WebsocketClientContext.shared() else {
             eventLoop.execute {
-                if let onConnect = self.onConnect {
+                if let onConnect = self.fetchOnConnect {
                     onConnect.fail(Error.contextCreationFailed)
-                    self.onConnect = nil
                 }
             }
             return
         }
-
-//        lws_set_log_level(1151, nil)
-        lws_set_log_level(0, nil)
 
         // self pointer
         selfPointer.initialize(to: .init(weakSelf: self))
@@ -373,18 +381,20 @@ public class WebsocketClient: WebsocketConnection {
         // Set a pointer back to self for communication from thr callback to the instance.
         lwsCCInfo.opaque_user_data = UnsafeMutableRawPointer(selfPointer)
 
+        // This is to be able to later use lws_set_wsi_user
+        lwsCCInfo.userdata = UnsafeMutableRawPointer(&_defaultLwsUserPointer)
+
         // Connect
         websocketClientContext.scheduleEventLoopExecution {
             guard let websocket = lws_client_connect_via_info(&self.lwsCCInfo) else {
                 eventLoop.execute {
-                    if let onConnect = self.onConnect {
+                    if let onConnect = self.fetchOnConnect {
                         onConnect.fail(Error.connectionError(description: "lws_client_connect_via_info failed"))
-                        self.onConnect = nil
                     }
                 }
                 return
             }
-            self.websocket = websocket
+            self.websocket.withLockedValue({ $0 = websocket })
 
             // Make sure the below variables are retained until function end
             _ = lwsCCInfoHost.count
@@ -395,24 +405,21 @@ public class WebsocketClient: WebsocketConnection {
     }
 
     deinit {
-        // TODO: Cannot wait in eventloop. Fix.
         // The below is for rare cases where the connection neither succeeded nor failed yet.
-//        try? eventLoop.scheduleTask(in: .zero, {
-//            if let onConnect = self.onConnect {
-//                onConnect.fail(Error.connectionError(description: "websocket freed (deinit called) before connection succeeded"))
-//                self.onConnect = nil
-//            }
-//        }).futureResult.wait()
-
-        // Close if not yet closed
-        self.close(reason: .goingAway, wait: true)
-
-        // Make sure callbacks don't crash after deinit
-        if let websocket {
-            WebsocketClientContext.shared()?.scheduleFastServiceExecution {
-                lws_set_opaque_user_data(websocket, nil)
+        if let onConnect = self.fetchOnConnect {
+            _ = eventLoop.execute {
+                onConnect.fail(Error.connectionError(description: "websocket freed (deinit called) before connection succeeded"))
             }
         }
+
+        // Close if not yet closed
+        if let websocket = self.websocket.withLockedValue({ $0 }) {
+            WebsocketClientContext.shared()?.scheduleEventLoopExecution {
+                // Makes sure our callback returns -1 always. Will close itself.
+                lws_set_wsi_user(websocket, &_closedLwsUserPointer)
+            }
+        }
+        self.close(reason: .goingAway, fastCallbackOnly: true)
 
         // Make sure to free this only after the websocket is destroyed
         // Otherwise we might receive a callback, try to use this pointer
@@ -423,24 +430,11 @@ public class WebsocketClient: WebsocketConnection {
 
     // MARK: - Helpers
 
-    private func close(reason: WebsocketCloseStatus, wait: Bool) {
+    private func close(reason: WebsocketCloseStatus, fastCallbackOnly: Bool) {
         closeLock.withLock {
             if !isClosedForever {
-                //                var closeReasonText = ""
-                //                lws_close_reason(websocket, reason, &closeReasonText, 0)
-                //                let callerText = "libwebsockets-client".utf8CString
-                //                let caller = callerText.toCPointer()
-                //                lws_close_free_wsi(websocket, reason, caller)
-                //                lws_set_timeout(websocket, PENDING_TIMEOUT_CLOSE_SEND, LWS_TO_KILL_SYNC)
-
-                if wait {
+                if fastCallbackOnly {
                     // Fast kill for deinit
-                    if let websocket {
-                        WebsocketClientContext.shared()?.scheduleFastServiceExecution {
-                            lws_set_timeout(websocket, PENDING_TIMEOUT_CLOSE_SEND, LWS_TO_KILL_SYNC)
-                        }
-                    }
-
                     self.markAsClosed(reason: reason)
                 } else {
                     self.send("".data(using: .utf8)!, opcode: .close(reason: reason))
@@ -525,6 +519,10 @@ public class WebsocketClient: WebsocketConnection {
             promise?.fail(Error.websocketNotYetOpen)
             return
         }
+        guard let wsi = websocket.withLockedValue({ $0 }) else {
+            promise?.fail(Error.websocketClosed)
+            return
+        }
 
         switch opcode {
         case .binary, .text, .continuation, .ping, .close:
@@ -538,12 +536,12 @@ public class WebsocketClient: WebsocketConnection {
             })
 
             // Make sure to ask for the write callback to execute
-            WebsocketClientContext.shared()?.callWritable(wsi: websocket)
+            WebsocketClientContext.shared()?.callWritable(wsi: wsi)
         }
     }
 
     public func close(reason: WebsocketCloseStatus) {
-        self.close(reason: reason, wait: false)
+        self.close(reason: reason, fastCallbackOnly: false)
     }
 
     public var pingInterval: TimeAmount? {
@@ -676,14 +674,27 @@ internal func _lws_swift_websocketClientCallback(
     inBytes: UnsafeMutableRawPointer?,
     len: Int
 ) -> Int32 {
+    // To make sure things get removed if necessary before we do anything else.
+    while let callback = WebsocketClientContext.shared()?.popEventLoopExecution() {
+        callback()
+    }
+
     func getWebsocketClient() -> WebsocketClient? {
         guard let wsi else {
             return nil
         }
+
+        if lws_wsi_user(wsi) == UnsafeMutableRawPointer(&_closedLwsUserPointer) {
+            // This means we explicitly marked the websocket as "done" or freed.
+            // Doing the below would crash.
+            return nil
+        }
+
         guard let wsiUser = lws_get_opaque_user_data(wsi) else {
             return nil
         }
-        let websocketClient = wsiUser.assumingMemoryBound(to: WebsocketClient.WeakSelf.self).pointee
+        let websocketClient = wsiUser.bindMemory(to: WebsocketClient.WeakSelf.self, capacity: 1).pointee
+//        let websocketClient = wsiUser.assumingMemoryBound(to: WebsocketClient.WeakSelf.self).pointee
 
         return websocketClient.weakSelf
     }
@@ -697,8 +708,7 @@ internal func _lws_swift_websocketClientCallback(
 
         websocketClient.wasConnected.withLockedValue({ $0 = true })
         websocketClient.eventLoop.execute {
-            websocketClient.onConnect?.succeed()
-            websocketClient.onConnect = nil
+            websocketClient.fetchOnConnect?.succeed()
         }
         break
     case LWS_CALLBACK_CLIENT_RECEIVE:
@@ -893,8 +903,7 @@ internal func _lws_swift_websocketClientCallback(
 
         websocketClient.connectionError.withLockedValue({ $0 = true })
         websocketClient.eventLoop.execute {
-            websocketClient.onConnect?.fail(WebsocketClient.Error.connectionError(description: description))
-            websocketClient.onConnect = nil
+            websocketClient.fetchOnConnect?.fail(WebsocketClient.Error.connectionError(description: description))
         }
         break
     case LWS_CALLBACK_CLIENT_RECEIVE_PONG:
@@ -952,10 +961,13 @@ internal func _lws_swift_websocketClientCallback(
     case LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH:
         break
     case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
-        while let callback = WebsocketClientContext.shared()?.popEventLoopExecution() {
-            callback()
-        }
+        // Handled as first step of the function
         break
+    case LWS_CALLBACK_WSI_DESTROY:
+        guard let websocketClient else {
+            return -1
+        }
+        websocketClient.websocket.withLockedValue({ $0 = nil })
     default:
         break
     }
@@ -975,3 +987,6 @@ internal func _lws_swift_websocketClientCallback(
 
     return 0
 }
+
+fileprivate var _defaultLwsUserPointer = "global-lws-user-default"
+fileprivate var _closedLwsUserPointer = "global-lws-user-closed"

@@ -7,16 +7,30 @@ import Foundation
 internal final class WebsocketClientContext {
     /// Singleton context. Needs to be checked for nil and reinitialized if nil
     private static var _shared: WebsocketClientContext? = nil
+    private static let _sharedContextCreated = NIOLockedValueBox(false)
 
     /// Returns the global instance. Check for nil and fail whatever you do if nil.
     static func shared() -> WebsocketClientContext? {
-        if let _shared {
+        let wasCreated = _sharedContextCreated.withLockedValue({
+            if $0 {
+                return true
+            }
+
+            $0 = true
+            return false
+        })
+
+        if wasCreated {
+            return _shared
+        } else {
+            if let _shared {
+                return _shared
+            }
+
+            _shared = .init()
+
             return _shared
         }
-
-        _shared = .init()
-
-        return _shared
     }
 
     // MARK: - Properties
@@ -108,19 +122,18 @@ internal final class WebsocketClientContext {
 
         // END Context Creation Info
 
-        let retValue = serviceQueue.sync { () -> String? in
+        let retValue = serviceQueue.sync { () -> OpaquePointer? in
             // Context
             guard let context = lws_create_context(&lwsContextCreationInfo) else {
                 return nil
             }
-            self.context = context
 
-            return ""
+            return context
         }
-
-        if retValue == nil {
+        guard let retValue else {
             return nil
         }
+        self.context = retValue
 
         // Polling of Events, including connection success
         scheduleServiceCall()
@@ -151,7 +164,7 @@ internal final class WebsocketClientContext {
             // arrives. The 250ms is ignored since the newest version.
             lws_service(context, 250)
 
-            while let callback = fastServiceExecutionCallbacks.withLockedValue({
+            while let callback = self.fastServiceExecutionCallbacks.withLockedValue({
                 let next = $0.count > 0 ? $0.removeFirst() : nil
                 return next
             }) {

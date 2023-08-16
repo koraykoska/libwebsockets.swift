@@ -219,8 +219,9 @@ final class AutobahnTestRunner: XCTestCase {
                     }
                 }
             )
-            getCaseCountPromise.whenFailure { _ in
+            getCaseCountPromise.whenFailure { error in
                 print("getCaseCount failure")
+                print(error)
                 semaphore.signal()
             }
         }
