@@ -28,6 +28,9 @@ internal final class WebsocketClientContext {
             }
 
             _shared = .init()
+            if _shared == nil {
+                _sharedContextCreated.withLockedValue({ $0 = false })
+            }
 
             return _shared
         }
@@ -182,11 +185,11 @@ internal final class WebsocketClientContext {
 
     // MARK: - API
 
-    func callWritable(wsi: OpaquePointer!) {
-        _ = writableQueue.sync {
-            lws_callback_on_writable(wsi)
-        }
-    }
+//    func callWritable(wsi: OpaquePointer!) {
+//        _ = writableQueue.sync {
+//            lws_callback_on_writable(wsi)
+//        }
+//    }
 
     func scheduleFastServiceExecution(_ callback: @escaping () -> Void) {
         fastServiceExecutionCallbacks.withLockedValue({ $0.append(callback) })

@@ -38,7 +38,7 @@ jobs:
       - name: Colima aka Docker on macOS
         run: |
           brew install colima docker
-          colima start --cpu 2 --memory 7 --mount-type virtiofs --vm-type vz
+          colima start
         if: ${{ matrix.os == 'macos-13' }}
 
       - name: Build Debug
