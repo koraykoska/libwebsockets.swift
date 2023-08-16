@@ -675,6 +675,11 @@ internal func _lws_swift_websocketClientCallback(
     inBytes: UnsafeMutableRawPointer?,
     len: Int
 ) -> Int32 {
+    // To make sure things get removed if necessary before we do anything else.
+    while let callback = WebsocketClientContext.shared()?.popEventLoopExecution() {
+        callback()
+    }
+
     func getWebsocketClient() -> WebsocketClient? {
         guard let wsi else {
             return nil
@@ -958,9 +963,6 @@ internal func _lws_swift_websocketClientCallback(
         break
     case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
         // Handled as first step of the function
-        while let callback = WebsocketClientContext.shared()?.popEventLoopExecution() {
-            callback()
-        }
         break
     case LWS_CALLBACK_WSI_DESTROY:
         guard let websocketClient else {
