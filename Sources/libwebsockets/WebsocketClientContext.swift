@@ -36,6 +36,7 @@ internal final class WebsocketClientContext {
     // MARK: - Properties
 
     private let serviceQueue = DispatchQueue(label: "libwebsockets-swift-context-service")
+    private let writableQueue = DispatchQueue(label: "libwebsockets-swift-context-writable")
 
     private let eventLoopExecutionCallbacks: NIOLockedValueBox<[() -> Void]> = .init([])
     private let fastServiceExecutionCallbacks: NIOLockedValueBox<[() -> Void]> = .init([])
@@ -182,7 +183,7 @@ internal final class WebsocketClientContext {
     // MARK: - API
 
     func callWritable(wsi: OpaquePointer!) {
-        scheduleEventLoopExecution {
+        writableQueue.async {
             lws_callback_on_writable(wsi)
         }
     }
