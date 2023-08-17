@@ -523,17 +523,19 @@ public class WebsocketClient: WebsocketConnection {
 
         switch opcode {
         case .binary, .text, .continuation:
-            let splitted = data.chunked(into: maxFrameSize)
+            let splitted = data.count > maxFrameSize ? data.chunked(into: maxFrameSize) : [data]
+            var writeChunks = [(data: Data, opcode: WebsocketOpcode, fin: Bool, promise: EventLoopPromise<Void>?)]()
             for i in 0..<splitted.count {
-                toBeWritten.withLockedValue({
-                    $0.append((
-                        data: splitted[i],
-                        opcode: i == 0 ? opcode : .continuation,
-                        fin: i == splitted.count - 1 ? fin : false,
-                        promise: i == splitted.count - 1 ? promise : nil
-                    ))
-                })
+                writeChunks.append((
+                    data: splitted[i],
+                    opcode: i == 0 ? opcode : .continuation,
+                    fin: i == splitted.count - 1 ? fin : false,
+                    promise: i == splitted.count - 1 ? promise : nil
+                ))
             }
+            toBeWritten.withLockedValue({
+                $0.append(contentsOf: writeChunks)
+            })
         case .ping, .close:
             toBeWritten.withLockedValue({
                 $0.append((
