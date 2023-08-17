@@ -50,7 +50,7 @@ jobs:
         run: docker run -d -it --rm -v "$PWD/autobahn/config:/config" -v "$PWD/autobahn/reports:/reports" -p 9001:9001 --name fuzzingserver crossbario/autobahn-testsuite
 
       - name: Run tests
-        run: swift test
+        run: swift test -c release
 
       - name: Upload report on failure
         run: tar -cvf autobahn-libwebsockets-swift.tar autobahn/ && curl --upload-file autobahn-libwebsockets-swift.tar https://transfer.sh/autobahn-libwebsockets-swift.tar

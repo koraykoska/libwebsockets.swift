@@ -53,15 +53,18 @@ final class AutobahnTestRunner: XCTestCase {
         })
 
         let caseNumbers = NIOLockedValueBox([Int]())
-        let reportsUpdated = NIOLockedValueBox(false)
+        let reportsUpdated = NIOLockedValueBox(0)
 
         @Sendable func updateReports(agent: String) {
             let wasUpdated = reportsUpdated.withLockedValue({
-                let wasUpdated = $0
-                $0 = true
-                return wasUpdated
+                $0 += 1
+                return $0
             })
-            if wasUpdated {
+            var count = 0
+            for _ in eventLoopGroup.makeIterator() {
+                count += 1
+            }
+            if wasUpdated < count {
                 return
             }
 
