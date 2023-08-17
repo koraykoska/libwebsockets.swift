@@ -86,8 +86,6 @@ internal final class WebsocketClientContext {
     private let protocolsPointer: UnsafeMutablePointer<lws_protocols>
     private let extensionsPointer: UnsafeMutablePointer<lws_extension>
 
-    private var repeatedServiceScheduleSourceTimer: DispatchSourceTimer? = nil
-
     internal private(set) var context: OpaquePointer!
 
     // See: https://stackoverflow.com/questions/61236195/create-a-weak-unsafemutablerawpointer?rq=3
@@ -190,27 +188,9 @@ internal final class WebsocketClientContext {
 
         // Polling of Events, including connection success
         scheduleServiceCall()
-
-        // Repeated service calls if necessary
-        repeatedServiceScheduleSourceTimer = DispatchSource.makeTimerSource(queue: writableQueue)
-        repeatedServiceScheduleSourceTimer?.schedule(deadline: .now(), repeating: .seconds(1))
-        repeatedServiceScheduleSourceTimer?.setEventHandler { [weak self] in
-            guard let self else {
-                return
-            }
-
-            if self.fastServiceExecutionCallbacks.withLockedValue({ $0.count }) > 0 ||
-                self.eventLoopExecutionCallbacks.withLockedValue({ $0.count }) > 0 {
-                self.forceCancelService()
-            }
-        }
-        repeatedServiceScheduleSourceTimer?.resume()
     }
 
     deinit {
-        // Stop repeated service timer
-        repeatedServiceScheduleSourceTimer?.cancel()
-
         // Destroy context. User nullify necessary to prevent segfault in future callbacks.
         ws_context_user_nullify(context)
         lws_context_destroy(context)
