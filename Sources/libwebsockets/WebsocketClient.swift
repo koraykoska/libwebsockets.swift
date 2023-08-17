@@ -522,7 +522,19 @@ public class WebsocketClient: WebsocketConnection {
         }
 
         switch opcode {
-        case .binary, .text, .continuation, .ping, .close:
+        case .binary, .text, .continuation:
+            let splitted = data.chunked(into: maxFrameSize)
+            for i in 0..<splitted.count {
+                toBeWritten.withLockedValue({
+                    $0.append((
+                        data: splitted[i],
+                        opcode: i == 0 ? opcode : .continuation,
+                        fin: i == splitted.count - 1 ? fin : false,
+                        promise: i == splitted.count - 1 ? promise : nil
+                    ))
+                })
+            }
+        case .ping, .close:
             toBeWritten.withLockedValue({
                 $0.append((
                     data: data,
@@ -531,10 +543,10 @@ public class WebsocketClient: WebsocketConnection {
                     promise: promise
                 ))
             })
-
-            // Make sure to ask for the write callback to execute
-            websocketClientContext?.callWritable(wsi: wsi)
         }
+
+        // Make sure to ask for the write callback to execute
+        websocketClientContext?.callWritable(wsi: wsi)
     }
 
     public func close(reason: WebsocketCloseStatus) {
@@ -671,7 +683,7 @@ internal func _lws_swift_websocketClientCallback(
     inBytes: UnsafeMutableRawPointer?,
     len: Int
 ) -> Int32 {
-    if let context = lws_get_context(wsi), let user = lws_context_user(context) {
+    if let wsi, let context = lws_get_context(wsi), let user = lws_context_user(context) {
         let websocketClientContext = user.assumingMemoryBound(to: WebsocketClientContext.WeakSelf.self).pointee.weakSelf
 
         // To make sure things get removed if necessary before we do anything else.

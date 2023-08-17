@@ -17,3 +17,11 @@ internal extension FixedWidthInteger {
         return self != 0
     }
 }
+
+internal extension Data {
+    func chunked(into size: Int) -> [Data] {
+        return stride(from: 0, to: count, by: size).map {
+            Data(self[$0 ..< Swift.min($0 + size, count)])
+        }
+    }
+}
