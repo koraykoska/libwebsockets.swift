@@ -10,7 +10,7 @@ import NIOPosix
     import Darwin.C
 #endif
 @testable import libwebsockets
-import Backtrace
+//import Backtrace
 
 final class AutobahnTestRunner: XCTestCase {
     enum Error: Swift.Error {
@@ -25,7 +25,7 @@ final class AutobahnTestRunner: XCTestCase {
         super.setUp()
 
         // Swift Backtraces
-        Backtrace.install()
+//        Backtrace.install()
 
 //        var rlp = rlimit()
 //        getrlimit(RLIMIT_NOFILE, &rlp)
