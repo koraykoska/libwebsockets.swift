@@ -15,9 +15,6 @@ public class WebsocketClient: WebsocketConnection {
 
     // MARK: - Properties
 
-    // Queue for running websocket event polling
-    // private let serviceQueue = DispatchQueue(label: "websocket-service")
-
     // See: https://stackoverflow.com/questions/61236195/create-a-weak-unsafemutablerawpointer?rq=3
     fileprivate class WeakSelf {
         fileprivate weak var weakSelf: WebsocketClient?
@@ -27,6 +24,8 @@ public class WebsocketClient: WebsocketConnection {
         }
     }
     private let selfPointer: UnsafeMutablePointer<WeakSelf>
+
+    private var websocketClientContext: WebsocketClientContext? = nil
 
     private var lwsCCInfo: lws_client_connect_info!
 
@@ -331,18 +330,6 @@ public class WebsocketClient: WebsocketConnection {
 
         selfPointer = UnsafeMutablePointer<WeakSelf>.allocate(capacity: 1)
 
-        // Timeout to prevent leaking promise
-        eventLoop.scheduleTask(in: .seconds(2 * Int64(connectionTimeoutSeconds)), {
-            if let onConnect = self.fetchOnConnect {
-                onConnect.fail(Error.connectionError(description: "timeout"))
-            }
-        })
-
-        // lws things below
-
-        //        lws_set_log_level(1151, nil)
-        lws_set_log_level(0, nil)
-
         guard let websocketClientContext = WebsocketClientContext.shared() else {
             eventLoop.execute {
                 if let onConnect = self.fetchOnConnect {
@@ -351,6 +338,16 @@ public class WebsocketClient: WebsocketConnection {
             }
             return
         }
+        self.websocketClientContext = websocketClientContext
+
+        // Timeout to prevent leaking promise
+        eventLoop.scheduleTask(in: .seconds(2 * Int64(connectionTimeoutSeconds)), {
+            if let onConnect = self.fetchOnConnect {
+                onConnect.fail(Error.connectionError(description: "timeout"))
+            }
+        })
+
+        // lws things below
 
         // self pointer
         selfPointer.initialize(to: .init(weakSelf: self))
@@ -385,7 +382,7 @@ public class WebsocketClient: WebsocketConnection {
         lwsCCInfo.userdata = UnsafeMutableRawPointer(&_defaultLwsUserPointer)
 
         // Connect
-        websocketClientContext.scheduleEventLoopExecution {
+        websocketClientContext.scheduleFastServiceExecution {
             guard let websocket = lws_client_connect_via_info(&self.lwsCCInfo) else {
                 eventLoop.execute {
                     if let onConnect = self.fetchOnConnect {
@@ -414,7 +411,7 @@ public class WebsocketClient: WebsocketConnection {
 
         // Close if not yet closed
         if let websocket = self.websocket.withLockedValue({ $0 }) {
-            WebsocketClientContext.shared()?.scheduleEventLoopExecution {
+            websocketClientContext?.scheduleEventLoopExecution(websocket) {
                 // Makes sure our callback returns -1 always. Will close itself.
                 lws_set_wsi_user(websocket, &_closedLwsUserPointer)
             }
@@ -536,7 +533,7 @@ public class WebsocketClient: WebsocketConnection {
             })
 
             // Make sure to ask for the write callback to execute
-            WebsocketClientContext.shared()?.callWritable(wsi: wsi)
+            websocketClientContext?.callWritable(wsi: wsi)
         }
     }
 
@@ -674,13 +671,21 @@ internal func _lws_swift_websocketClientCallback(
     inBytes: UnsafeMutableRawPointer?,
     len: Int
 ) -> Int32 {
-    // To make sure things get removed if necessary before we do anything else.
-    while let callback = WebsocketClientContext.shared()?.popEventLoopExecution() {
-        callback()
+    if let context = lws_get_context(wsi), let user = lws_context_user(context) {
+        let websocketClientContext = user.assumingMemoryBound(to: WebsocketClientContext.WeakSelf.self).pointee.weakSelf
+
+        // To make sure things get removed if necessary before we do anything else.
+        while let callback = websocketClientContext?.popEventLoopExecution() {
+            callback()
+        }
     }
 
     func getWebsocketClient() -> WebsocketClient? {
         guard let wsi else {
+            return nil
+        }
+
+        guard let wsiUser = lws_get_opaque_user_data(wsi) else {
             return nil
         }
 
@@ -690,15 +695,11 @@ internal func _lws_swift_websocketClientCallback(
             return nil
         }
 
-        guard let wsiUser = lws_get_opaque_user_data(wsi) else {
-            return nil
-        }
-        let websocketClient = wsiUser.bindMemory(to: WebsocketClient.WeakSelf.self, capacity: 1).pointee
-//        let websocketClient = wsiUser.assumingMemoryBound(to: WebsocketClient.WeakSelf.self).pointee
+        let websocketClient = wsiUser.assumingMemoryBound(to: WebsocketClient.WeakSelf.self).pointee
 
         return websocketClient.weakSelf
     }
-    let websocketClient = getWebsocketClient()
+    lazy var websocketClient: WebsocketClient? = getWebsocketClient()
 
     switch reason {
     case LWS_CALLBACK_CLIENT_ESTABLISHED:
@@ -719,6 +720,7 @@ internal func _lws_swift_websocketClientCallback(
             // We don't really care. No bytes received means we don't do anything.
             break
         }
+        // TODO: Performance measure
 //        let typedPointer = inBytes.bindMemory(to: UInt8.self, capacity: len)
 //        let data = Data(Array(UnsafeMutableBufferPointer(start: typedPointer, count: len)))
         let data = Data(bytes: inBytes, count: len)
@@ -731,73 +733,75 @@ internal func _lws_swift_websocketClientCallback(
             websocketClient.onFragmentCallback?.value(websocketClient, data, !isBinary, isFirst, isFinal)
         }
 
-        websocketClient.frameSequence.withLockedValue({ currentFrameSequence in
-            if isFirst && isFinal {
-                // We can skip everything below. It's a simple message
+        websocketClient.eventLoop.execute {
+            websocketClient.frameSequence.withLockedValue({ currentFrameSequence in
+                if isFirst && isFinal {
+                    // We can skip everything below. It's a simple message
 
-                // We don't check max message size here. If user set `maxFrameSize`
-                // greater than `maxMessageSize`, he will have to deal with the consequences.
-                // If not, this case is handled by `rx_buffer_size` in libwebsockets already.
+                    // We don't check max message size here. If user set `maxFrameSize`
+                    // greater than `maxMessageSize`, he will have to deal with the consequences.
+                    // If not, this case is handled by `rx_buffer_size` in libwebsockets already.
 
-                if isBinary {
-                    websocketClient.eventLoop.execute {
-                        websocketClient.onBinaryCallback?.value(websocketClient, data)
-                    }
-                } else {
-                    if let stringMessage = String(data: data, encoding: .utf8) {
+                    if isBinary {
                         websocketClient.eventLoop.execute {
-                            websocketClient.onTextCallback?.value(websocketClient, stringMessage)
+                            websocketClient.onBinaryCallback?.value(websocketClient, data)
                         }
                     } else {
-                        websocketClient.close(reason: .invalidPayload)
-                    }
-                }
-
-                currentFrameSequence = nil
-                return
-            }
-
-            var frameSequence = currentFrameSequence ?? websocketClient.frameSequenceType.init(type: isBinary ? .binary : .text)
-            // Append the frame and update the sequence
-            frameSequence.append(data)
-
-            // Check message size
-            let messageSize = isBinary ? frameSequence.binaryBuffer.count : frameSequence.textBuffer.count
-            if let maxMessageSize = websocketClient.maxMessageSize, messageSize > maxMessageSize {
-                // Close connection
-                websocketClient.close(reason: .messageTooLarge)
-                // Reset frame sequence just in case
-                currentFrameSequence = nil
-                return
-            }
-
-            // Set current frame sequence
-            currentFrameSequence = frameSequence
-
-            if isFinal {
-                switch frameSequence.type {
-                case .binary:
-                    websocketClient.eventLoop.execute {
-                        websocketClient.onBinaryCallback?.value(websocketClient, frameSequence.binaryBuffer)
-                    }
-                    break
-                case .text:
-                    websocketClient.eventLoop.execute {
-                        guard let text = String(data: frameSequence.textBuffer, encoding: .utf8) else {
+                        if let stringMessage = String(data: data, encoding: .utf8) {
+                            websocketClient.eventLoop.execute {
+                                websocketClient.onTextCallback?.value(websocketClient, stringMessage)
+                            }
+                        } else {
                             websocketClient.close(reason: .invalidPayload)
-                            return
                         }
-                        websocketClient.onTextCallback?.value(websocketClient, text)
                     }
-                    break
-                default:
-                    // Should never happen. If it does, do nothing.
-                    break
+
+                    currentFrameSequence = nil
+                    return
                 }
 
-                currentFrameSequence = nil
-            }
-        })
+                var frameSequence = currentFrameSequence ?? websocketClient.frameSequenceType.init(type: isBinary ? .binary : .text)
+                // Append the frame and update the sequence
+                frameSequence.append(data)
+
+                // Check message size
+                let messageSize = isBinary ? frameSequence.binaryBuffer.count : frameSequence.textBuffer.count
+                if let maxMessageSize = websocketClient.maxMessageSize, messageSize > maxMessageSize {
+                    // Close connection
+                    websocketClient.close(reason: .messageTooLarge)
+                    // Reset frame sequence just in case
+                    currentFrameSequence = nil
+                    return
+                }
+
+                // Set current frame sequence
+                currentFrameSequence = frameSequence
+
+                if isFinal {
+                    switch frameSequence.type {
+                    case .binary:
+                        websocketClient.eventLoop.execute {
+                            websocketClient.onBinaryCallback?.value(websocketClient, frameSequence.binaryBuffer)
+                        }
+                        break
+                    case .text:
+                        websocketClient.eventLoop.execute {
+                            guard let text = String(data: frameSequence.textBuffer, encoding: .utf8) else {
+                                websocketClient.close(reason: .invalidPayload)
+                                return
+                            }
+                            websocketClient.onTextCallback?.value(websocketClient, text)
+                        }
+                        break
+                    default:
+                        // Should never happen. If it does, do nothing.
+                        break
+                    }
+
+                    currentFrameSequence = nil
+                }
+            })
+        }
         break
     case LWS_CALLBACK_CLIENT_WRITEABLE:
         guard let websocketClient else {
@@ -869,8 +873,10 @@ internal func _lws_swift_websocketClientCallback(
             let status = UInt16(bigEndian: bytesRaw.pointee)
             closeReason = lws_close_status(UInt32(status))
         }
-        websocketClient.closeLock.withLock {
-            websocketClient.markAsClosed(reason: WebsocketCloseStatus(fromLwsCloseStatus: closeReason))
+        websocketClient.eventLoop.execute {
+            websocketClient.closeLock.withLock {
+                websocketClient.markAsClosed(reason: WebsocketCloseStatus(fromLwsCloseStatus: closeReason))
+            }
         }
         break
     case LWS_CALLBACK_CLIENT_CLOSED:
@@ -884,8 +890,10 @@ internal func _lws_swift_websocketClientCallback(
             let status = UInt16(bigEndian: bytesRaw.pointee)
             closeReason = WebsocketCloseStatus(fromLwsCloseStatus: lws_close_status(UInt32(status)))
         }
-        websocketClient.closeLock.withLock {
-            websocketClient.markAsClosed(reason: closeReason ?? .noStatus)
+        websocketClient.eventLoop.execute {
+            websocketClient.closeLock.withLock {
+                websocketClient.markAsClosed(reason: closeReason ?? .noStatus)
+            }
         }
         break
     case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
@@ -915,7 +923,7 @@ internal func _lws_swift_websocketClientCallback(
         websocketClient.waitingForPong.withLockedValue { $0 = false }
 
         var data = Data()
-        if let inBytes, len > 0 {
+        if len > 0, let inBytes {
             data = Data(bytes: inBytes, count: len)
         }
 
@@ -972,7 +980,7 @@ internal func _lws_swift_websocketClientCallback(
         break
     }
 
-    if let websocketClient, websocketClient.isClosedForever {
+//    if let websocketClient, websocketClient.isClosedForever {
         // If for whatever reason we get another callback after the connection being closed, close again.
 
         // THIS DOES NOT WORK
@@ -983,7 +991,7 @@ internal func _lws_swift_websocketClientCallback(
 //        lws_close_reason(wsi, closeReason, &dataPointer, dataPointer.count)
 //
 //        return -1
-    }
+//    }
 
     return 0
 }

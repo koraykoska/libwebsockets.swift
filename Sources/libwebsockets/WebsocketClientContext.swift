@@ -6,10 +6,11 @@ import Foundation
 
 internal final class WebsocketClientContext {
     /// Singleton context. Needs to be checked for nil and reinitialized if nil
-    private static var _shared: WebsocketClientContext? = nil
+    private static var _shared: [WebsocketClientContext]? = nil
+    private static var _nextSharedContext = NIOLockedValueBox(0)
     private static let _sharedContextCreated = NIOLockedValueBox(false)
 
-    /// Returns the global instance. Check for nil and fail whatever you do if nil.
+    /// Returns one of the global instances. Check for nil and fail whatever you do if nil.
     static func shared() -> WebsocketClientContext? {
         let wasCreated = _sharedContextCreated.withLockedValue({
             if $0 {
@@ -20,19 +21,46 @@ internal final class WebsocketClientContext {
             return false
         })
 
+        func nextShared() -> WebsocketClientContext? {
+            let nextId = _nextSharedContext.withLockedValue({
+                let nextToBeSet: Int
+                if $0 >= (((_shared?.count) ?? 0) - 1) {
+                    nextToBeSet = 0
+                    $0 = 0
+                } else {
+                    nextToBeSet = $0 + 1
+                    $0 += 1
+                }
+
+                return nextToBeSet
+            })
+
+            return _shared?[nextId]
+        }
+
         if wasCreated {
-            return _shared
+            return nextShared()
         } else {
-            if let _shared {
-                return _shared
+            if _shared != nil {
+                return nextShared()
             }
 
-            _shared = .init()
+            var shared: [WebsocketClientContext] = []
+            for _ in 0..<System.coreCount {
+                if let context = WebsocketClientContext() {
+                    shared.append(context)
+                }
+            }
+            if shared.count == System.coreCount {
+                self._shared = shared
+            }
+
             if _shared == nil {
                 _sharedContextCreated.withLockedValue({ $0 = false })
+                return nil
+            } else {
+                return nextShared()
             }
-
-            return _shared
         }
     }
 
@@ -58,11 +86,26 @@ internal final class WebsocketClientContext {
     private let protocolsPointer: UnsafeMutablePointer<lws_protocols>
     private let extensionsPointer: UnsafeMutablePointer<lws_extension>
 
+    private var repeatedServiceScheduleSourceTimer: DispatchSourceTimer? = nil
+
     internal private(set) var context: OpaquePointer!
+
+    // See: https://stackoverflow.com/questions/61236195/create-a-weak-unsafemutablerawpointer?rq=3
+    internal class WeakSelf {
+        internal weak var weakSelf: WebsocketClientContext?
+
+        fileprivate init(weakSelf: WebsocketClientContext) {
+            self.weakSelf = weakSelf
+        }
+    }
+    private let selfPointer: UnsafeMutablePointer<WeakSelf>
 
     // MARK: - Initialization
 
     private init?() {
+        //        lws_set_log_level(1151, nil)
+        lws_set_log_level(0, nil)
+
         protocolsPointer = UnsafeMutablePointer<lws_protocols>.allocate(capacity: 2)
         extensionsPointer = UnsafeMutablePointer<lws_extension>.allocate(capacity: 2)
         permessageDeflateExtensionName = "permessage-deflate".utf8CString
@@ -76,6 +119,12 @@ internal final class WebsocketClientContext {
         lwsContextCreationInfo.options = UInt64(LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)
         // TODO: Per instance customization?
         lwsContextCreationInfo.timeout_secs = 10
+
+        // self pointer
+        selfPointer = UnsafeMutablePointer<WeakSelf>.allocate(capacity: 1)
+        selfPointer.initialize(to: .init(weakSelf: self))
+        // Set a pointer back to self for communication from thr callback to the instance.
+        lwsContextCreationInfo.user = UnsafeMutableRawPointer(selfPointer)
 
         // Protocols
         lwsProtocols = lws_protocols()
@@ -141,9 +190,27 @@ internal final class WebsocketClientContext {
 
         // Polling of Events, including connection success
         scheduleServiceCall()
+
+        // Repeated service calls if necessary
+        repeatedServiceScheduleSourceTimer = DispatchSource.makeTimerSource(queue: writableQueue)
+        repeatedServiceScheduleSourceTimer?.schedule(deadline: .now(), repeating: .seconds(1))
+        repeatedServiceScheduleSourceTimer?.setEventHandler { [weak self] in
+            guard let self else {
+                return
+            }
+
+            if self.fastServiceExecutionCallbacks.withLockedValue({ $0.count }) > 0 ||
+                self.eventLoopExecutionCallbacks.withLockedValue({ $0.count }) > 0 {
+                self.forceCancelService()
+            }
+        }
+        repeatedServiceScheduleSourceTimer?.resume()
     }
 
     deinit {
+        // Stop repeated service timer
+        repeatedServiceScheduleSourceTimer?.cancel()
+
         // Destroy context. User nullify necessary to prevent segfault in future callbacks.
         ws_context_user_nullify(context)
         lws_context_destroy(context)
@@ -153,6 +220,10 @@ internal final class WebsocketClientContext {
 
         extensionsPointer.deinitialize(count: 2)
         extensionsPointer.deallocate()
+
+        // After everything is destroyed
+        selfPointer.deinitialize(count: 1)
+        selfPointer.deallocate()
     }
 
     // MARK: - Helpers
@@ -196,9 +267,10 @@ internal final class WebsocketClientContext {
         forceCancelService()
     }
 
-    func scheduleEventLoopExecution(_ callback: @escaping () -> Void) {
+    func scheduleEventLoopExecution(_ wsi: OpaquePointer!, _ callback: @escaping () -> Void) {
         eventLoopExecutionCallbacks.withLockedValue({ $0.append(callback) })
-        forceCancelService()
+        // Call Writable is faster and we prevent calling every websocket callbacks.
+        callWritable(wsi: wsi)
     }
 
     func popEventLoopExecution() -> (() -> Void)? {
