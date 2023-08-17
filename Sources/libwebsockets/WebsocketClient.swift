@@ -536,8 +536,7 @@ public class WebsocketClient: WebsocketConnection {
             })
 
             // Make sure to ask for the write callback to execute
-//            WebsocketClientContext.shared()?.callWritable(wsi: wsi)
-            lws_callback_on_writable(wsi)
+            WebsocketClientContext.shared()?.callWritable(wsi: wsi)
         }
     }
 

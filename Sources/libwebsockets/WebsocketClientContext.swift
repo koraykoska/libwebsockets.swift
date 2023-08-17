@@ -185,11 +185,11 @@ internal final class WebsocketClientContext {
 
     // MARK: - API
 
-//    func callWritable(wsi: OpaquePointer!) {
-//        _ = writableQueue.sync {
-//            lws_callback_on_writable(wsi)
-//        }
-//    }
+    func callWritable(wsi: OpaquePointer!) {
+        _ = writableQueue.sync {
+            lws_callback_on_writable(wsi)
+        }
+    }
 
     func scheduleFastServiceExecution(_ callback: @escaping () -> Void) {
         fastServiceExecutionCallbacks.withLockedValue({ $0.append(callback) })
