@@ -43,7 +43,9 @@ public class WebsocketClient: WebsocketConnection {
     fileprivate let waitingLwsCloseStatus: NIOLockedValueBox<WebsocketCloseStatus?> = .init(nil)
 
     /// Internally managed buffer of frames. Emitted once the full message is there.
-    fileprivate let frameSequence: NIOLockedValueBox<WebsocketFrameSequence?> = .init(nil)
+    /// Internal Note: This doesn't need to be a NIOLockedValueBox as we only access it from
+    /// the EventLoop.
+    fileprivate var frameSequence: WebsocketFrameSequence? = nil
     fileprivate let frameSequenceType: WebsocketFrameSequence.Type
 
     // State variables
@@ -762,73 +764,71 @@ internal func _lws_swift_websocketClientCallback(
         }
 
         websocketClient.eventLoop.execute {
-            websocketClient.frameSequence.withLockedValue({ currentFrameSequence in
-                if isFirst && isFinal {
-                    // We can skip everything below. It's a simple message
+            if isFirst && isFinal {
+                // We can skip everything below. It's a simple message
 
-                    // We don't check max message size here. If user set `maxFrameSize`
-                    // greater than `maxMessageSize`, he will have to deal with the consequences.
-                    // If not, this case is handled by `rx_buffer_size` in libwebsockets already.
+                // We don't check max message size here. If user set `maxFrameSize`
+                // greater than `maxMessageSize`, he will have to deal with the consequences.
+                // If not, this case is handled by `rx_buffer_size` in libwebsockets already.
 
-                    if isBinary {
+                if isBinary {
+                    websocketClient.eventLoop.execute {
+                        websocketClient.onBinaryCallback?.value(websocketClient, data)
+                    }
+                } else {
+                    if let stringMessage = String(data: data, encoding: .utf8) {
                         websocketClient.eventLoop.execute {
-                            websocketClient.onBinaryCallback?.value(websocketClient, data)
+                            websocketClient.onTextCallback?.value(websocketClient, stringMessage)
                         }
                     } else {
-                        if let stringMessage = String(data: data, encoding: .utf8) {
-                            websocketClient.eventLoop.execute {
-                                websocketClient.onTextCallback?.value(websocketClient, stringMessage)
-                            }
-                        } else {
+                        websocketClient.close(reason: .invalidPayload)
+                    }
+                }
+
+                websocketClient.frameSequence = nil
+                return
+            }
+
+            var frameSequence = websocketClient.frameSequence ?? websocketClient.frameSequenceType.init(type: isBinary ? .binary : .text)
+            // Append the frame and update the sequence
+            frameSequence.append(data)
+
+            // Check message size
+            let messageSize = isBinary ? frameSequence.binaryBuffer.count : frameSequence.textBuffer.count
+            if let maxMessageSize = websocketClient.maxMessageSize, messageSize > maxMessageSize {
+                // Close connection
+                websocketClient.close(reason: .messageTooLarge)
+                // Reset frame sequence just in case
+                websocketClient.frameSequence = nil
+                return
+            }
+
+            // Set current frame sequence
+            websocketClient.frameSequence = frameSequence
+
+            if isFinal {
+                switch frameSequence.type {
+                case .binary:
+                    websocketClient.eventLoop.execute {
+                        websocketClient.onBinaryCallback?.value(websocketClient, frameSequence.binaryBuffer)
+                    }
+                    break
+                case .text:
+                    websocketClient.eventLoop.execute {
+                        guard let text = String(data: frameSequence.textBuffer, encoding: .utf8) else {
                             websocketClient.close(reason: .invalidPayload)
+                            return
                         }
+                        websocketClient.onTextCallback?.value(websocketClient, text)
                     }
-
-                    currentFrameSequence = nil
-                    return
+                    break
+                default:
+                    // Should never happen. If it does, do nothing.
+                    break
                 }
 
-                var frameSequence = currentFrameSequence ?? websocketClient.frameSequenceType.init(type: isBinary ? .binary : .text)
-                // Append the frame and update the sequence
-                frameSequence.append(data)
-
-                // Check message size
-                let messageSize = isBinary ? frameSequence.binaryBuffer.count : frameSequence.textBuffer.count
-                if let maxMessageSize = websocketClient.maxMessageSize, messageSize > maxMessageSize {
-                    // Close connection
-                    websocketClient.close(reason: .messageTooLarge)
-                    // Reset frame sequence just in case
-                    currentFrameSequence = nil
-                    return
-                }
-
-                // Set current frame sequence
-                currentFrameSequence = frameSequence
-
-                if isFinal {
-                    switch frameSequence.type {
-                    case .binary:
-                        websocketClient.eventLoop.execute {
-                            websocketClient.onBinaryCallback?.value(websocketClient, frameSequence.binaryBuffer)
-                        }
-                        break
-                    case .text:
-                        websocketClient.eventLoop.execute {
-                            guard let text = String(data: frameSequence.textBuffer, encoding: .utf8) else {
-                                websocketClient.close(reason: .invalidPayload)
-                                return
-                            }
-                            websocketClient.onTextCallback?.value(websocketClient, text)
-                        }
-                        break
-                    default:
-                        // Should never happen. If it does, do nothing.
-                        break
-                    }
-
-                    currentFrameSequence = nil
-                }
-            })
+                websocketClient.frameSequence = nil
+            }
         }
         break
     case LWS_CALLBACK_CLIENT_WRITEABLE:
