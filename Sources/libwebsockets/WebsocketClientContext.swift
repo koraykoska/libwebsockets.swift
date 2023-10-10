@@ -131,7 +131,7 @@ internal final class WebsocketClientContext {
         lwsProtocols.callback = _lws_swift_websocketClientCallback
         lwsProtocols.per_session_data_size = 0
         // TODO: Per instance customization?
-        lwsProtocols.rx_buffer_size = 4000000
+        lwsProtocols.rx_buffer_size = 1000000
 
         protocolsPointer.initialize(to: lwsProtocols)
 

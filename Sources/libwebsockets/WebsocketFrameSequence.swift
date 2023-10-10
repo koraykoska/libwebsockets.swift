@@ -5,6 +5,7 @@ public protocol WebsocketFrameSequence: Sendable {
     var binaryBuffer: Data { get }
     var textBuffer: Data { get }
     var type: WebsocketOpcode { get }
+    var count: Int { get }
 
     init(type: WebsocketOpcode)
 
@@ -12,22 +13,45 @@ public protocol WebsocketFrameSequence: Sendable {
 }
 
 public struct WebsocketSimpleAppendFrameSequence: WebsocketFrameSequence {
-    private(set) public var binaryBuffer: Data
-    private(set) public var textBuffer: Data
+    public var binaryBuffer: Data {
+        return _binaryBuffer[0..<_count]
+    }
+    public var textBuffer: Data {
+        return _textBuffer[0..<_count]
+    }
+    public var count: Int {
+        return _count
+    }
+    private var _count: Int
+    private var _binaryBuffer: Data
+    private var _textBuffer: Data
     public let type: WebsocketOpcode
 
+    private let bufferSize = 1000000
+
     public init(type: WebsocketOpcode) {
-        self.binaryBuffer = Data()
-        self.textBuffer = Data()
+        self._binaryBuffer = Data()
+        self._textBuffer = Data()
+        self._count = 0
         self.type = type
     }
 
     public mutating func append(_ frame: Data) {
         switch type {
         case .binary:
-            self.binaryBuffer.append(frame)
+            if _binaryBuffer.count < _count + frame.count {
+                _binaryBuffer.append(Data(count: max(bufferSize, frame.count)))
+            }
+
+            _count += frame.count
+            self._binaryBuffer.insert(contentsOf: frame, at: _count)
         case .text:
-            self.textBuffer.append(frame)
+            if _textBuffer.count < _count + frame.count {
+                _textBuffer.append(Data(count: max(bufferSize, frame.count)))
+            }
+
+            _count += frame.count
+            self._textBuffer.insert(contentsOf: frame, at: _count)
         default:
             break
         }

@@ -794,7 +794,7 @@ internal func _lws_swift_websocketClientCallback(
             frameSequence.append(data)
 
             // Check message size
-            let messageSize = isBinary ? frameSequence.binaryBuffer.count : frameSequence.textBuffer.count
+            let messageSize = frameSequence.count
             if let maxMessageSize = websocketClient.maxMessageSize, messageSize > maxMessageSize {
                 // Close connection
                 websocketClient.close(reason: .messageTooLarge)
