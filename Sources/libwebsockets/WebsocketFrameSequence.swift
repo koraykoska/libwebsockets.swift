@@ -14,10 +14,10 @@ public protocol WebsocketFrameSequence: Sendable {
 
 public struct WebsocketSimpleAppendFrameSequence: WebsocketFrameSequence {
     public var binaryBuffer: Data {
-        return _binaryBuffer[0..<_count]
+        return _binaryBuffer
     }
     public var textBuffer: Data {
-        return _textBuffer[0..<_count]
+        return _textBuffer
     }
     public var count: Int {
         return _count
@@ -28,10 +28,12 @@ public struct WebsocketSimpleAppendFrameSequence: WebsocketFrameSequence {
     public let type: WebsocketOpcode
 
     private let bufferSize = 100000
+    private var bufferCurrentSize: Int
 
     public init(type: WebsocketOpcode) {
-        self._binaryBuffer = Data()
-        self._textBuffer = Data()
+        self._binaryBuffer = Data(capacity: bufferSize)
+        self._textBuffer = Data(capacity: bufferSize)
+        self.bufferCurrentSize = bufferSize
         self._count = 0
         self.type = type
     }
@@ -39,18 +41,22 @@ public struct WebsocketSimpleAppendFrameSequence: WebsocketFrameSequence {
     public mutating func append(_ frame: Data) {
         switch type {
         case .binary:
-            if _binaryBuffer.count < _count + frame.count {
-                _binaryBuffer.append(Data(count: max(bufferSize, frame.count)))
+            if _count + frame.count > bufferCurrentSize {
+                let nextBufferSize = max(bufferCurrentSize + bufferSize, bufferCurrentSize + frame.count)
+                _binaryBuffer.reserveCapacity(nextBufferSize)
+                self.bufferCurrentSize = nextBufferSize
             }
 
-            self._binaryBuffer.insert(contentsOf: frame, at: _count)
+            self._binaryBuffer.append(frame)
             _count += frame.count
         case .text:
-            if _textBuffer.count < _count + frame.count {
-                _textBuffer.append(Data(count: max(bufferSize, frame.count)))
+            if _count + frame.count > bufferCurrentSize {
+                let nextBufferSize = max(bufferCurrentSize + bufferSize, bufferCurrentSize + frame.count)
+                _textBuffer.reserveCapacity(nextBufferSize)
+                self.bufferCurrentSize = nextBufferSize
             }
 
-            self._textBuffer.insert(contentsOf: frame, at: _count)
+            self._textBuffer.append(frame)
             _count += frame.count
         default:
             break
