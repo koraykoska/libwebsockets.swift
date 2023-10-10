@@ -43,15 +43,15 @@ public struct WebsocketSimpleAppendFrameSequence: WebsocketFrameSequence {
                 _binaryBuffer.append(Data(count: max(bufferSize, frame.count)))
             }
 
-            _count += frame.count
             self._binaryBuffer.insert(contentsOf: frame, at: _count)
+            _count += frame.count
         case .text:
             if _textBuffer.count < _count + frame.count {
                 _textBuffer.append(Data(count: max(bufferSize, frame.count)))
             }
 
-            _count += frame.count
             self._textBuffer.insert(contentsOf: frame, at: _count)
+            _count += frame.count
         default:
             break
         }
