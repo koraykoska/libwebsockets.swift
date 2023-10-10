@@ -27,7 +27,7 @@ public struct WebsocketSimpleAppendFrameSequence: WebsocketFrameSequence {
     private var _textBuffer: Data
     public let type: WebsocketOpcode
 
-    private let bufferSize = 1000000
+    private let bufferSize = 100000
 
     public init(type: WebsocketOpcode) {
         self._binaryBuffer = Data()
