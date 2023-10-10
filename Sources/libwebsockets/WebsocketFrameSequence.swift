@@ -1,5 +1,7 @@
 import Foundation
 import NIOConcurrencyHelpers
+import NIOCore
+import NIOFoundationCompat
 
 public protocol WebsocketFrameSequence: Sendable {
     var binaryBuffer: Data { get }
@@ -14,25 +16,26 @@ public protocol WebsocketFrameSequence: Sendable {
 
 public struct WebsocketSimpleAppendFrameSequence: WebsocketFrameSequence {
     public var binaryBuffer: Data {
-        return _binaryBuffer
+        return _binaryBuffer.getData(at: 0, length: _binaryBuffer.readableBytes, byteTransferStrategy: .copy) ?? Data()
     }
     public var textBuffer: Data {
-        return _textBuffer
+        return _textBuffer.getData(at: 0, length: _textBuffer.readableBytes, byteTransferStrategy: .copy) ?? Data()
     }
     public var count: Int {
         return _count
     }
     private var _count: Int
-    private var _binaryBuffer: Data
-    private var _textBuffer: Data
+    private var _binaryBuffer: ByteBuffer
+    private var _textBuffer: ByteBuffer
     public let type: WebsocketOpcode
 
+    private let byteBufferAllocator = ByteBufferAllocator()
     private let bufferSize = 100000
     private var bufferCurrentSize: Int
 
     public init(type: WebsocketOpcode) {
-        self._binaryBuffer = Data(capacity: bufferSize)
-        self._textBuffer = Data(capacity: bufferSize)
+        self._binaryBuffer = byteBufferAllocator.buffer(capacity: bufferSize)
+        self._textBuffer = byteBufferAllocator.buffer(capacity: bufferSize)
         self.bufferCurrentSize = bufferSize
         self._count = 0
         self.type = type
@@ -47,7 +50,7 @@ public struct WebsocketSimpleAppendFrameSequence: WebsocketFrameSequence {
                 self.bufferCurrentSize = nextBufferSize
             }
 
-            self._binaryBuffer.append(frame)
+            self._binaryBuffer.writeBytes(frame)
             _count += frame.count
         case .text:
             if _count + frame.count > bufferCurrentSize {
@@ -56,7 +59,7 @@ public struct WebsocketSimpleAppendFrameSequence: WebsocketFrameSequence {
                 self.bufferCurrentSize = nextBufferSize
             }
 
-            self._textBuffer.append(frame)
+            self._textBuffer.writeBytes(frame)
             _count += frame.count
         default:
             break
