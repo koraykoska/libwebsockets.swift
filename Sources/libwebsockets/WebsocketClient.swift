@@ -366,7 +366,12 @@ public class WebsocketClient: WebsocketConnection {
         // TODO: Use query and all other params?
 //        lwsCCInfo.host = lws_canonical_hostname(context)
         let lwsCCInfoHostHeader = "\(host):\(port)".utf8CString
-        lwsCCInfo.host = lwsCCInfoHostHeader.toCPointer()
+        let lwsCCInfoCustomHostHeader = headers[caseInsensitive: "host"]?.utf8CString ?? headers[caseInsensitive: "host:"]?.utf8CString
+        if let lwsCCInfoCustomHostHeader {
+            lwsCCInfo.host = lwsCCInfoCustomHostHeader.toCPointer()
+        } else {
+            lwsCCInfo.host = lwsCCInfoHostHeader.toCPointer()
+        }
         let lwsCCInfoOrigin = origin.utf8CString
         lwsCCInfo.origin = lwsCCInfoOrigin.toCPointer()
         lwsCCInfo.protocol = websocketClientContext.lwsProtocols.name
@@ -398,6 +403,7 @@ public class WebsocketClient: WebsocketConnection {
             // Make sure the below variables are retained until function end
             _ = lwsCCInfoHost.count
             _ = lwsCCInfoHostHeader.count
+            _ = lwsCCInfoCustomHostHeader?.count
             _ = lwsCCInfoPath.count
             _ = lwsCCInfoOrigin.count
         }
@@ -974,6 +980,12 @@ internal func _lws_swift_websocketClientCallback(
         let end = p.pointee?.advanced(by: len)
 
         for header in websocketClient.headers {
+            let lowercaseHeaderKey = header.key.lowercased()
+            if lowercaseHeaderKey == "host" || lowercaseHeaderKey == "host:" {
+                // Host was set already in client connect info
+                continue
+            }
+
             let keyString = header.key.utf8CString
             let valueString = header.value.utf8CString
             guard lws_add_http_header_by_name(
